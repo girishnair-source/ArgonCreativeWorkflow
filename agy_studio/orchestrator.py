@@ -211,6 +211,24 @@ class Studio:
 
         return fake_mode()
 
+    def _require_vertex_auth(self, *, force: bool = False) -> Any:
+        """Fail-fast credential pre-flight for every real generation wave (skipped in fake / test mode).
+
+        Runs ``gcloud auth print-access-token`` + project lookup once per process (``force=True`` re-checks) and
+        raises :class:`~agy_studio.adapters.auth.AuthError` with gcloud's real error text and the fix. Nothing is
+        planned, hashed or submitted before this passes.
+        """
+        from .adapters.auth import require_vertex_auth
+
+        if self.is_fake():
+            return None
+        cached = getattr(self, "_auth_status", None)
+        if cached is not None and not force:
+            return cached
+        status = require_vertex_auth()
+        self._auth_status = status
+        return status
+
     @property
     def db(self) -> Any:
         """Read path into Resolve (passive DB snapshot reads; never clicks menus to poll)."""
@@ -362,6 +380,19 @@ class Studio:
         rep.blocked.extend(blockers)
         return False
 
+    def _auth_block(self, sid: str, rep: StepReport, exc: BaseException) -> bool:
+        """Fail fast on a Google Cloud credential problem: show the full error NOW and block the scene on it.
+
+        The blocker is ``question:<id> auth``; :meth:`_blocker_resolved` re-checks gcloud on every tick and clears
+        it automatically once ``gcloud auth login`` has been run — nothing else is required from the human.
+        """
+        from .adapters.auth import describe_for_chat
+
+        text = describe_for_chat(exc)
+        q = self.ask(sid, "auth", text)
+        rep.lines.append(text)
+        return self._block(sid, rep, f"question:{q.id} auth")
+
     def _clear_blockers(self, sid: str, rep: StepReport) -> bool:
         blockers = list(self.state.scene(sid).blocked_by)
         if not blockers:
@@ -379,6 +410,17 @@ class Studio:
         if kind == "question":
             qid = rest.split(" ", 1)[0]
             q = next((q for q in self.questions.all() if q.id == qid), None)
+            if q is not None and q.status == "open" and rest.endswith(" auth"):
+                # Self-healing: once the human has run `gcloud auth login`, the next tick re-checks the credential
+                # and clears the blocker by itself — no code change, no manual `answer`, no offline stand-in.
+                from .adapters.auth import AuthError
+
+                try:
+                    status = self._require_vertex_auth(force=True)
+                except AuthError:
+                    return False
+                self.questions.answer(qid, f"gcloud sign-in verified ({status.summary()})")
+                return True
             return q is None or q.status == "answered"
         if kind == "pack":
             asset, _, _owner = rest.partition("@")
@@ -1575,13 +1617,24 @@ class Studio:
         return True
 
     def _h_generating(self, sid: str, rep: StepReport) -> bool:
+        from .adapters.auth import AuthError
         from .budget import BudgetExceeded
         from .shot_generator import LintGateError, ModelFallbackNeeded, generate_clip, resume_inflight
+
+        # Fail fast (BEFORE any take folder / payload / provider job exists): one cheap gcloud check. A broken
+        # sign-in becomes a blocking question carrying gcloud's own error + the fix. No seed retry, no provider
+        # fallback and never an offline stand-in — those only waste minutes and hide the real problem.
+        try:
+            self._require_vertex_auth()
+        except AuthError as exc:
+            return self._auth_block(sid, rep, exc)
 
         try:
             resumed = resume_inflight(self.project, self.registry, self.state, fake=self.fake)
             if resumed:
                 rep.lines.append(f"{sid}: resumed {len(resumed)} in-flight take(s) (no resubmission)")
+        except AuthError as exc:
+            return self._auth_block(sid, rep, exc)
         except Exception as exc:  # noqa: BLE001
             rep.lines.append(f"{sid}: could not resume in-flight takes ({exc})")
         wave = [c for c in self.frontier(sid) if not self._live_takes(c)]
@@ -1594,6 +1647,8 @@ class Studio:
             except LintGateError as exc:
                 self.state.transition(sid, S.LINT, reason=f"{cid}: {exc}")
                 return True
+            except AuthError as exc:
+                return self._auth_block(sid, rep, exc)
             except ModelFallbackNeeded as exc:
                 clip = self.project.load_clip(cid)
                 clip.model_target = clip.model_target.model_copy(update={"preferred": exc.model_id, "fallback": None})

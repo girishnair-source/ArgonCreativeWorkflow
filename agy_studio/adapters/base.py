@@ -44,6 +44,8 @@ from ..models import (
     Take,
 )
 from ..registry import ModelSpec
+from . import auth
+from .auth import AuthError, is_auth_failure, raise_if_auth_failure
 
 FAKE_ENV = "AGY_FAKE_GENERATION"
 _TRUE = frozenset({"1", "true", "yes", "on"})
@@ -214,40 +216,34 @@ def fold_negatives(prompt: str, negative: str | None) -> str:
 
 _CACHED_GCLOUD_PROJECT: str | None = None
 
-for _extra_bin in ("/opt/homebrew/bin", "/usr/local/bin"):
-    if _extra_bin not in os.environ.get("PATH", ""):
-        os.environ["PATH"] = f"{_extra_bin}:{os.environ.get('PATH', '')}".rstrip(":")
+# gcloud / ffmpeg live outside the PATH of GUI-launched processes (Antigravity, Resolve); auth.py knows every usual
+# install dir (Homebrew bin, Homebrew's google-cloud-sdk/bin, Caskroom, ~/google-cloud-sdk, snap, Windows ...).
+auth.ensure_tool_dirs_on_path()
 
 
 def vertex_project_id() -> str:
-    """Vertex project from env -> active gcloud config -> legacy default."""
+    """Vertex project from ``VERTEX_PROJECT_ID`` / ``GOOGLE_CLOUD_PROJECT`` -> active gcloud config.
+
+    There is deliberately NO hidden default project: an unset project raises :class:`AuthError` with the command
+    that fixes it instead of billing a stranger's project and failing with a 403 minutes later.
+    """
     global _CACHED_GCLOUD_PROJECT  # noqa: PLW0603
-    for key in ("VERTEX_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"):
-        if os.environ.get(key):
-            return os.environ[key]
+    for key in auth.PROJECT_ENV_KEYS:
+        if os.environ.get(key, "").strip():
+            return os.environ[key].strip()
     if _CACHED_GCLOUD_PROJECT:
         return _CACHED_GCLOUD_PROJECT
-    try:
-        import subprocess  # noqa: PLC0415
-
-        proj = subprocess.check_output(
-            ["gcloud", "config", "get-value", "project", "--quiet"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-        ).strip()
-        if proj and proj != "(unset)":
-            _CACHED_GCLOUD_PROJECT = proj
-            return proj
-    except Exception:  # noqa: BLE001
-        pass
-    import vertex_veo_director  # noqa: PLC0415 - legacy module, real path only
-
-    return str(vertex_veo_director.VERTEX_PROJECT_ID)
+    _CACHED_GCLOUD_PROJECT = auth.vertex_project()
+    return _CACHED_GCLOUD_PROJECT
 
 
 def gemini_client(location: str | None = None, *, use_gcloud_token: bool = False) -> Any:
-    """google-genai client on Vertex AI using Application Default Credentials (or gcloud access token fallback)."""
+    """google-genai client on Vertex AI.
+
+    ``use_gcloud_token=True`` authenticates with a fresh ``gcloud auth print-access-token`` (the same credential the
+    video adapters use); otherwise Application Default Credentials. A broken gcloud sign-in raises
+    :class:`AuthError` immediately — it is never swallowed.
+    """
     try:
         import certifi  # noqa: PLC0415
 
@@ -258,21 +254,11 @@ def gemini_client(location: str | None = None, *, use_gcloud_token: bool = False
 
     project = vertex_project_id()
     if use_gcloud_token:
-        try:
-            import subprocess  # noqa: PLC0415
-            from google.oauth2.credentials import Credentials  # noqa: PLC0415
+        from google.oauth2.credentials import Credentials  # noqa: PLC0415
 
-            tok = subprocess.check_output(
-                ["gcloud", "auth", "print-access-token"],
-                text=True,
-                stderr=subprocess.DEVNULL,
-                timeout=8,
-            ).strip()
-            if tok:
-                creds = Credentials(token=tok, quota_project_id=project)
-                return genai.Client(vertexai=True, project=project, location=location or "global", credentials=creds)
-        except Exception:  # noqa: BLE001
-            pass
+        tok = auth.gcloud_access_token(auth.preferred_account())
+        creds = Credentials(token=tok, quota_project_id=project)
+        return genai.Client(vertexai=True, project=project, location=location or "global", credentials=creds)
     return genai.Client(vertexai=True, project=project, location=location or "global")
 
 
@@ -288,7 +274,11 @@ def parse_json_text(text: str | None) -> dict[str, Any]:
 def gemini_generate_json(models: Sequence[str], location: str | None, system: str | None, contents: list[Any],
                          schema: dict[str, Any] | None = None, temperature: float = 0.2,
                          client: Any = None) -> dict[str, Any]:
-    """Structured JSON generation with provider fallbacks (first model that answers wins)."""
+    """Structured JSON generation with provider fallbacks (first model that answers wins).
+
+    Credential / permission failures (gcloud broken, HTTP 401/403) are raised as :class:`AuthError` at once — the next
+    model would fail identically, so there is nothing to gain from trying it.
+    """
     from google.genai import types  # noqa: PLC0415 - real path only
 
     client = client or gemini_client(location)
@@ -303,15 +293,18 @@ def gemini_generate_json(models: Sequence[str], location: str | None, system: st
             resp = client.models.generate_content(model=model, contents=contents,
                                                   config=types.GenerateContentConfig(**cfg))
             return parse_json_text(getattr(resp, "text", None))
-        except Exception as exc:  # noqa: BLE001 - try gcloud token fallback on 401/403, then next model
+        except AuthError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - ADC 401/403 -> retry once with the gcloud token, else next model
             msg = short_error(exc)
-            if any(code in msg for code in ("401", "403", "PERMISSION_DENIED", "UNAUTHENTICATED")):
+            if is_auth_failure(exc):
+                alt_client = gemini_client(location, use_gcloud_token=True)  # raises AuthError if gcloud is broken
                 try:
-                    alt_client = gemini_client(location, use_gcloud_token=True)
                     resp = alt_client.models.generate_content(model=model, contents=contents,
                                                               config=types.GenerateContentConfig(**cfg))
                     return parse_json_text(getattr(resp, "text", None))
                 except Exception as exc2:  # noqa: BLE001
+                    raise_if_auth_failure(exc2, context=f"calling {model}")
                     msg = short_error(exc2)
             errors.append(f"{model}: {msg}")
     raise AdapterError("all provider models failed: " + "; ".join(errors))
@@ -645,6 +638,10 @@ class VideoAdapter(BaseAdapter, ABC):
         are automatically re-prompted with ``safety_reprompt_payload`` and re-rolled up to ``max_rai_retries`` times
         per provider model. On timeout the take is returned still in flight (``submitted``/``running``) so
         :meth:`resume` can pick it up later — nothing is resubmitted.
+
+        **Fail fast on credentials:** an :class:`AuthError` (gcloud token missing / expired / blocked by
+        Context-Aware Access, HTTP 401/403) propagates immediately. It is never logged as a per-model failure, never
+        re-rolled and never handed to the next provider model — every one of those would fail the same way.
         """
         take = take.model_copy(deep=True)
         deadline = time.monotonic() + float(timeout_s)
@@ -655,9 +652,10 @@ class VideoAdapter(BaseAdapter, ABC):
             for rai_round in range(max(1, int(self.max_rai_retries))):
                 try:
                     operation = self.submit(active_payload, provider_model=provider, attempt=attempt)
-                except UnsupportedFeatureError:
+                except (UnsupportedFeatureError, AuthError):
                     raise
                 except Exception as exc:  # noqa: BLE001
+                    raise_if_auth_failure(exc, context=f"submitting {take.id} to {provider}")
                     err_msg = short_error(exc)
                     if is_safety_error(err_msg) and rai_round + 1 < self.max_rai_retries and time.monotonic() < deadline:
                         old_p = active_payload.bundle.prompt
@@ -849,21 +847,37 @@ class LegacyVideoAdapter(VideoAdapter):
         return self._token
 
     def refresh_token(self) -> None:
+        """Force a fresh gcloud token; a broken sign-in is an :class:`AuthError` (complete message, no retry)."""
         try:
             self.token.get(force=True)
         except Exception as exc:  # noqa: BLE001
-            raise AdapterError(f"could not refresh the gcloud access token: {short_error(exc)} "
-                               f"(run `gcloud auth login`)") from exc
+            raise auth.as_auth_error(exc, context="refreshing the gcloud access token") from exc
 
     def call_with_auth(self, fn: Callable[[], Any]) -> Any:
-        """Run ``fn``; on HTTP 401 force a token refresh and retry exactly once."""
+        """Run ``fn``; on HTTP 401 force a token refresh and retry exactly once.
+
+        A failure to mint the token, or a second 401/403 after the refresh, is raised as :class:`AuthError` so the
+        dispatch loop stops immediately instead of re-rolling seeds or trying the next provider model.
+        """
         try:
             return fn()
+        except AuthError:
+            raise
         except Exception as exc:
+            if exc_status(exc) == 403:
+                raise auth.as_auth_error(exc, context="calling Vertex AI") from exc
             if exc_status(exc) != 401:
+                if is_auth_failure(exc):
+                    raise auth.as_auth_error(exc, context="calling Vertex AI") from exc
                 raise
-            self.refresh_token()
+        self.refresh_token()
+        try:
             return fn()
+        except AuthError:
+            raise
+        except Exception as exc:
+            raise_if_auth_failure(exc, context="calling Vertex AI after a token refresh")
+            raise
 
     def gcs_prefix(self, payload: GenerationPayload, attempt: int) -> str | None:
         if self.inline_delivery:

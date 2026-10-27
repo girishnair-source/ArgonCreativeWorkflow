@@ -14,6 +14,7 @@ from ..registry import ModelSpec
 from .base import (
     IMAGE_EXTS,
     AdapterError,
+    AuthError,
     BaseAdapter,
     UnsupportedFeatureError,
     adapter_kwargs,
@@ -21,7 +22,9 @@ from .base import (
     gemini_client,
     gemini_part_from_file,
     image_mime,
+    is_auth_failure,
     is_safety_error,
+    raise_if_auth_failure,
     resolve_media,
     safety_reprompt_text,
     scrub,
@@ -106,13 +109,14 @@ class ImageAdapter(BaseAdapter):
                             return staging
                         reason = f"{model}: response contained no image bytes (safety_level={safety_level})"
                         errors.append(reason)
+                    except AuthError:
+                        raise  # credentials: stop now — the next model / safety level would fail identically
                     except Exception as exc:  # noqa: BLE001
                         err_msg = short_error(exc)
-                        if self.client is None and any(
-                            c in err_msg for c in ("401", "403", "PERMISSION_DENIED", "UNAUTHENTICATED")
-                        ):
+                        if self.client is None and is_auth_failure(exc):
+                            # ADC mismatch -> retry exactly once with the gcloud token; a broken gcloud raises AuthError
+                            alt = gemini_client(self.spec.location, use_gcloud_token=True)
                             try:
-                                alt = gemini_client(self.spec.location, use_gcloud_token=True)
                                 resp = alt.models.generate_content(
                                     model=model,
                                     contents=[*ref_parts, active_prompt],
@@ -133,6 +137,7 @@ class ImageAdapter(BaseAdapter):
                                     }
                                     return staging
                             except Exception as exc2:  # noqa: BLE001
+                                raise_if_auth_failure(exc2, context=f"generating {dest.name} with {model}")
                                 err_msg = short_error(exc2)
                         reason = f"{model}: {err_msg}"
                         errors.append(reason)

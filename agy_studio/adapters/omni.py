@@ -25,6 +25,7 @@ from ..models import DispatchStatus, GenerationPayload, PromptBundle
 from ..registry import ModelSpec
 from .base import (
     AdapterError,
+    AuthError,
     LegacyVideoAdapter,
     PollResult,
     UnsupportedFeatureError,
@@ -152,6 +153,8 @@ class OmniAdapter(LegacyVideoAdapter):
 
         try:
             op_id, params = self.call_with_auth(lambda: start(gcs))
+        except AuthError:
+            raise  # credentials: fail fast, never retry inline
         except Exception as exc:  # noqa: BLE001 - mirror the legacy pipeline: GCS refusal -> inline delivery
             message = str(exc).lower()
             if gcs and any(word in message for word in ("storage", "bucket", "gcs")):
@@ -188,6 +191,8 @@ class OmniAdapter(LegacyVideoAdapter):
         client = self.omni_client()
         try:
             inter = self.call_with_auth(lambda: client.fetch_interaction(operation_name))
+        except AuthError:
+            raise  # an expired / blocked sign-in is not transient: stop polling and tell the human
         except Exception as exc:  # noqa: BLE001 - transient: keep running, bounded by max_poll_errors
             return self.poll_failed(operation_name, exc)
         self.poll_ok(operation_name)

@@ -9,6 +9,7 @@ The existing generators (``vertex_veo_director.py``, ``pro_audio_director.py``) 
 are imported lazily — only on real (non-fake) code paths.
 """
 
+from .auth import AuthError, require_vertex_auth
 from .base import (
     FAKE_ENV,
     AdapterError,
@@ -22,9 +23,11 @@ from .base import (
 __all__ = [
     "FAKE_ENV",
     "AdapterError",
+    "AuthError",
     "PollResult",
     "UnsupportedFeatureError",
     "VideoAdapter",
     "fake_mode",
+    "require_vertex_auth",
     "resolve_fake",
 ]

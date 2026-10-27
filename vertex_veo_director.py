@@ -69,34 +69,36 @@ def is_omni_model(model: str) -> bool:
 
 
 # ---------------------------------------------------------------------------------------------
-# gcloud access-token provider (cached, refreshed on 401 / age)
+# gcloud access-token provider (cached, refreshed on 401 / age) — FAIL FAST, never silent
 # ---------------------------------------------------------------------------------------------
 class GcloudToken:
-    def __init__(self) -> None:
+    """Cached ``gcloud auth print-access-token``.
+
+    Discovery, stderr capture and error wording live in :mod:`agy_studio.adapters.auth`: when gcloud cannot mint a
+    token (expired login, Context-Aware Access block, missing binary) :meth:`get` raises
+    :class:`agy_studio.adapters.auth.AuthError` whose message contains gcloud's own error text plus the exact
+    ``gcloud auth login`` / ``context_aware/use_client_certificate`` commands. Nothing downstream may catch that and
+    continue with an offline stand-in.
+    """
+
+    def __init__(self, account: str | None = None) -> None:
         self._token: str | None = None
         self._fetched_at = 0.0
+        self._account = account
+
+    def _resolve_account(self) -> str | None:
+        """Explicit account -> ``AGY_GCLOUD_ACCOUNT`` / ``CLOUDSDK_CORE_ACCOUNT`` -> gcloud's active account."""
+        from agy_studio.adapters import auth  # noqa: PLC0415 - stdlib-only module, shared with the AGY adapters
+
+        if self._account:
+            return self._account
+        return auth.preferred_account()
 
     def get(self, force: bool = False) -> str:
         if force or not self._token or (time.time() - self._fetched_at) > 45 * 60:
-            env = dict(os.environ)
-            tag = "datacloud.antigravity"
-            prev = env.get("CLOUDSDK_METRICS_ENVIRONMENT", "")
-            env["CLOUDSDK_METRICS_ENVIRONMENT"] = f"{prev} {tag}".strip() if prev else tag
-            cmd = ["gcloud", "auth", "print-access-token"]
-            try:
-                accts_out = subprocess.check_output(
-                    ["gcloud", "auth", "list", "--format=value(account)"],
-                    text=True,
-                    stderr=subprocess.DEVNULL,
-                    env=env,
-                )
-                accts = [a.strip() for a in accts_out.splitlines() if a.strip()]
-                non_google = [a for a in accts if not a.endswith("@google.com")]
-                if non_google:
-                    cmd.append(non_google[0])
-            except Exception:
-                pass
-            self._token = subprocess.check_output(cmd, text=True, env=env).strip()
+            from agy_studio.adapters import auth  # noqa: PLC0415
+
+            self._token = auth.gcloud_access_token(self._resolve_account())
             self._fetched_at = time.time()
         return self._token
 

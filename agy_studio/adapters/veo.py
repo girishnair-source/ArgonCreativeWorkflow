@@ -21,6 +21,7 @@ from ..models import DispatchStatus, GenerationPayload, PromptBundle
 from ..registry import ModelSpec
 from .base import (
     AdapterError,
+    AuthError,
     LegacyVideoAdapter,
     PollResult,
     UnsupportedFeatureError,
@@ -159,6 +160,8 @@ class VeoAdapter(LegacyVideoAdapter):
 
         try:
             op = self.call_with_auth(_fetch)
+        except AuthError:
+            raise  # an expired / blocked sign-in is not transient: stop polling and tell the human
         except Exception as exc:  # noqa: BLE001 - transient poll error
             return self.poll_failed(operation_name, exc)
         self.poll_ok(operation_name)

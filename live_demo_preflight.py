@@ -8,15 +8,17 @@ Run before going on stage (or let Antigravity run it automatically on Turn 1):
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 import sys
 from pathlib import Path
 
-os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
-
 ROOT = Path(__file__).resolve().parent
 PRODUCTIONS_DIR = ROOT / "productions"
+sys.path.insert(0, str(ROOT))
+
+from agy_studio.adapters import auth  # noqa: E402 - stdlib-only; also prepends every usual gcloud/ffmpeg dir to PATH
+
+auth.ensure_tool_dirs_on_path()
 
 
 def check_binary(name: str, explicit_path: str | None = None) -> tuple[bool, str]:
@@ -24,6 +26,15 @@ def check_binary(name: str, explicit_path: str | None = None) -> tuple[bool, str
     if not target or not Path(target).exists():
         return False, f"MISSING ({name})"
     return True, str(target)
+
+
+def check_vertex_auth() -> tuple[bool, str]:
+    """Actually mint a token + resolve the project (the exact calls Gate G4/G5 make). Blocking when it fails."""
+    try:
+        status = auth.require_vertex_auth()
+    except auth.AuthError as exc:
+        return False, str(exc)
+    return True, status.summary()
 
 
 def run_preflight() -> bool:
@@ -35,17 +46,32 @@ def run_preflight() -> bool:
     checks = [
         ("Python .venv", str(ROOT / ".venv/bin/python")),
         ("FFmpeg (Audio/Video/ContactSheet)", shutil.which("ffmpeg")),
-        ("Google Cloud CLI (Vertex/Omni/TTS)", shutil.which("gcloud")),
+        ("Google Cloud CLI (Vertex/Omni/TTS)", auth.find_gcloud(required=False)),
         ("Blender 5.2 (3D Set & Camera Engine)", "/Applications/Blender.app/Contents/MacOS/Blender"),
     ]
     for label, path in checks:
         ok, detail = check_binary(label, path)
-        status = "✅ READY" if ok else "⚠️ OPTIONAL/MISSING"
+        optional = label.startswith("Blender")
+        status = "✅ READY" if ok else ("⚠️ OPTIONAL/MISSING" if optional else "❌ REQUIRED/MISSING")
         print(f"  {status:<20} {label:<34} -> {detail}")
-        if label != "Blender 5.2 (3D Set & Camera Engine)" and not ok:
+        if not optional and not ok:
             all_ok = False
 
-    from agy_studio.adapters.base import vertex_project_id
+    # The real G4/G5 blocker: can gcloud mint a Vertex token right now? (No offline fallback exists — by design.)
+    auth_ok, auth_detail = check_vertex_auth()
+    if auth_ok:
+        print(f"  {'✅ READY':<20} {'Google Cloud Sign-In (gcloud token)':<34} -> {auth_detail}")
+    else:
+        all_ok = False
+        print(f"  {'❌ BLOCKING':<20} {'Google Cloud Sign-In (gcloud token)':<34} -> FAILED")
+        print("-" * 72)
+        print(auth_detail)
+        print("-" * 72)
+        print("STOP: fix the sign-in above before starting any gate. AGY Studio fails fast and never substitutes\n"
+              "offline voices or still-image videos — that would waste time and hide this exact problem.")
+        print("=" * 72)
+        return False
+
     from agy_studio.generic_bible import (
         CameraRig33,
         CineAperture,
@@ -72,7 +98,7 @@ def run_preflight() -> bool:
     layout_check = validate_workspace_layout(ROOT)
     print("-" * 72)
     print("🔒 AGY v5 HARNESS CAPABILITIES & ANTI-HALLUCINATION GUARDS:")
-    print(f"  ✅ Active GCP Project        : {vertex_project_id()} (auto-detected via gcloud/env)")
+    print(f"  ✅ Active GCP Project        : {auth.vertex_project()} (VERTEX_PROJECT_ID / gcloud config)")
     print(f"  ✅ Two-Tier Video Engine     : {omni.provider_model} ({omni.draft_resolution} Draft -> {omni.finalize_resolution} Finalize, reuse_prompt={omni.supports.reuse_prompt_on_finalize})")
     print(f"  ✅ Native Voice Engine       : {omni.native_voice_model} (Preserves [acoustic delivery tags] + native script)")
     print(f"  ✅ Optical & Rig Matrix      : {len(CineCameraBody)} Camera Bodies × {len(CineLens)} Lenses × {len(CineAperture)} Apertures × {len(CameraRig33)} Rigs")

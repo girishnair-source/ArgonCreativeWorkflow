@@ -34,11 +34,10 @@ OMNI_MODEL_ID = "gemini-omni-1.1-flash-preview"
 
 
 def _gcloud_token() -> str:
-    env = dict(os.environ)
-    tag = "datacloud.antigravity"
-    prev = env.get("CLOUDSDK_METRICS_ENVIRONMENT", "")
-    env["CLOUDSDK_METRICS_ENVIRONMENT"] = f"{prev} {tag}".strip() if prev else tag
-    return subprocess.check_output(["gcloud", "auth", "print-access-token"], text=True, env=env).strip()
+    """Fresh gcloud access token; raises ``agy_studio.adapters.auth.AuthError`` with the real gcloud error + fix."""
+    from agy_studio.adapters import auth  # noqa: PLC0415 - stdlib-only module shared with the AGY adapters
+
+    return auth.gcloud_access_token(auth.preferred_account())
 
 
 def generate_lyria_music_stem(

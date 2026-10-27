@@ -587,8 +587,14 @@ def main(argv: list[str] | None = None) -> int:
         print("Stopped. Nothing is lost — `resume` continues from the last finished step.")
         return 130
     except Exception as exc:  # noqa: BLE001 — chat-facing: one plain line, no stack trace
+        from .adapters.auth import AuthError, describe_for_chat
+
         if os.environ.get("AGY_DEBUG"):
             traceback.print_exc()
+        if isinstance(exc, AuthError):
+            # Fail fast + tell the human exactly what to run. Never fall back to offline / fake generation.
+            print(describe_for_chat(exc))
+            return 3
         msg = str(exc).strip() or exc.__class__.__name__
         print(f"PROBLEM: {msg} [{exc.__class__.__name__}]")
         return 2

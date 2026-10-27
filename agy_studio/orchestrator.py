@@ -265,7 +265,10 @@ class Studio:
         if self._transport is None:
             from . import resolve_bridge as rb
 
-            self._transport = rb.FakeTransport() if self.is_fake() else rb.LuaMenuTransport()
+            # Real mode: menu-click Lua bridge first, then the direct scripting API. Delivery into the editor is a
+            # deliverable — a transport failure is surfaced with the manual one-click fallback, never swallowed.
+            self._transport = (rb.FakeTransport() if self.is_fake()
+                               else rb.FailoverTransport(rb.LuaMenuTransport(), rb.ScriptApiTransport()))
         return self._transport
 
     @property
@@ -1548,7 +1551,8 @@ class Studio:
         notes = [f"cue {c.get('cue_id')}: {c.get('duration_s')}s from {c.get('start_s', 0)}s — {c.get('prompt')}"
                  for c in self.cue_plan(sid)]
         for aud in voice_report.get("auditioned", []):
-            notes.append(f"voice audition {aud['character_id']}: {aud['audition_wav']} ({aud['description']})")
+            notes.append(f"voice spec {aud['character_id']} (goes into the video prompt; no audio generated): "
+                         f"{aud['description']}")
         for reuse in voice_report.get("reused_from_global", []):
             notes.append(f"voice locked in Global Bible {reuse['character_id']}: {reuse.get('anchor_wav') or reuse['voice_profile_id']}")
         packet = GatePacket(gate=GateId.G4, scene_id=sid, title="Audio spec per clip + cue plan",
@@ -2178,8 +2182,14 @@ class Studio:
         try:
             handoff = self.bridge.deliver_scene(sid, cut)
         except Exception as exc:  # noqa: BLE001
-            rep.lines.append(f"{sid}: scene cut assembled; Resolve delivery failed: {exc}")
-            return self._block(sid, rep, f"resolve: {exc}")
+            # The .mp4 / OTIO deliverables exist on disk; what failed is pushing them into the editor. Say exactly
+            # what to do (the FailoverTransport message includes the one-click manual route) and block G6 on it —
+            # `unblock <SID>` + `advance <SID>` retries delivery once Resolve is ready; nothing is regenerated.
+            where = f"post/ and scenes/{sid}/assembly/ (OTIO: {cut.otio_path})" if cut.otio_path else "post/"
+            rep.lines.append(f"{sid}: scene cut assembled and saved under {where}.\n"
+                             f"DaVinci Resolve delivery did not complete:\n{exc}\n"
+                             f"When Resolve is ready, reply `unblock {sid}` and `advance {sid}` to push it again.")
+            return self._block(sid, rep, f"resolve: {str(exc).splitlines()[0][:160]}")
         scene = self.scene(sid)
         scene.status = SceneStatus.HANDED_OFF
         scene.resolve = scene.resolve.model_copy(update={

@@ -460,8 +460,14 @@ def render_lua(ops: Sequence[BridgeOp], *, run_id: str) -> str:
     return source
 
 
+class ResolveDeliveryError(RuntimeError):
+    """A transport could not get the ops into DaVinci Resolve (message says what to fix or do by hand)."""
+
+
 class LuaMenuTransport:
     """Real DaVinci Resolve Free 21 transport via ``Fusion/Scripts/Utility/AGY_Bridge.lua`` + UI menu click."""
+
+    name = "lua_menu"
 
     def __init__(self, *, scripts_dir: Path | None = None) -> None:
         self.scripts_dir = Path(scripts_dir) if scripts_dir else UTILITY_SCRIPTS_DIR
@@ -475,13 +481,188 @@ class LuaMenuTransport:
 
         import resolve_sync_trigger  # noqa: PLC0415 - legacy module, real path only
 
-        triggered = resolve_sync_trigger.trigger_menu_script("AGY_Bridge")
-        return {
-            "run_id": run_id,
-            "ok": bool(triggered),
-            "script_path": str(script_path),
-            "receipt": f"/{RECEIPTS_BIN}/{run_id}/ok",
-        }
+        status = str(resolve_sync_trigger.trigger_menu_script("AGY_Bridge") or "").strip()
+        # The AppleScript returns a status string, not a boolean: anything but CLICKED means nothing happened in
+        # Resolve. Treat it as a failure so the fail-over transport (or the human) can take over — never a silent
+        # "delivered" with an empty media pool.
+        ok = status.upper().startswith("CLICKED") or status.upper() in {"OK", "DONE"}
+        if not ok:
+            raise ResolveDeliveryError(
+                f"Resolve menu script was not triggered (status: {status or 'empty'}). The Lua bridge is installed at "
+                f"{script_path}; Resolve must be running and must have enumerated Workspace -> Scripts since the "
+                f"script was installed."
+            )
+        return {"run_id": run_id, "ok": True, "transport": self.name, "script_path": str(script_path),
+                "receipt": f"/{RECEIPTS_BIN}/{run_id}/ok"}
+
+
+# Standard DaVinci Resolve scripting-module locations (macOS, Windows, Linux) — overridable via
+# RESOLVE_SCRIPT_API_MODULES / RESOLVE_SCRIPT_API.
+_RESOLVE_MODULE_DIRS: tuple[str, ...] = (
+    "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules",
+    "/opt/resolve/Developer/Scripting/Modules",
+    "/home/resolve/Developer/Scripting/Modules",
+    "C:/ProgramData/Blackmagic Design/DaVinci Resolve/Support/Developer/Scripting/Modules",
+)
+
+
+def load_resolve_scripting_api() -> Any:
+    """Connect to a running DaVinci Resolve through its native Python scripting API (``DaVinciResolveScript``).
+
+    Raises :class:`ResolveDeliveryError` with the exact remedy when the module is missing or Resolve is not running /
+    external scripting is disabled.
+    """
+    import os  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    candidates = [os.environ.get("RESOLVE_SCRIPT_API_MODULES"),
+                  (os.environ.get("RESOLVE_SCRIPT_API") or "").rstrip("/") + "/Modules"
+                  if os.environ.get("RESOLVE_SCRIPT_API") else None,
+                  *_RESOLVE_MODULE_DIRS]
+    for d in candidates:
+        if d and Path(d).is_dir() and d not in sys.path:
+            sys.path.append(d)
+    try:
+        import DaVinciResolveScript as bmd  # type: ignore[import-not-found]  # noqa: PLC0415
+    except ImportError as exc:
+        raise ResolveDeliveryError(
+            "DaVinciResolveScript (Resolve's Python scripting module) was not found. Install DaVinci Resolve, or "
+            "point RESOLVE_SCRIPT_API_MODULES at '<Resolve>/Developer/Scripting/Modules'. "
+            f"({exc})") from exc
+    resolve = bmd.scriptapp("Resolve")
+    if resolve is None:
+        raise ResolveDeliveryError(
+            "DaVinci Resolve is not running, or external scripting is off. Open Resolve, then "
+            "Preferences -> System -> General -> 'External scripting using' = Local, and re-run the gate.")
+    return resolve
+
+
+class ScriptApiTransport:
+    """Fallback transport: the same additive ops executed directly through Resolve's Python scripting API.
+
+    Used automatically when the Lua/menu-click route fails (no Accessibility permission, menu not enumerated, no
+    osascript on Windows/Linux). Needs Resolve running with external scripting = Local and a project open.
+    """
+
+    name = "script_api"
+
+    def __init__(self, resolve: Any = None) -> None:
+        self._resolve = resolve
+
+    def _project(self) -> Any:
+        resolve = self._resolve or load_resolve_scripting_api()
+        pm = resolve.GetProjectManager()
+        proj = pm.GetCurrentProject() if pm else None
+        if proj is None:
+            raise ResolveDeliveryError("No project is open in DaVinci Resolve — open (or create) the project, then re-run.")
+        return proj
+
+    @staticmethod
+    def _ensure_bin(mp: Any, path: str) -> Any:
+        cur = mp.GetRootFolder()
+        for part in [p for p in str(path).split("/") if p]:
+            found = next((f for f in (cur.GetSubFolderList() or []) if f.GetName() == part), None)
+            cur = found or mp.AddSubFolder(cur, part) or cur
+        return cur
+
+    @staticmethod
+    def _add_marker(tl: Any, m: dict[str, Any]) -> None:
+        if tl is None:
+            return
+        tl.AddMarker(int(m.get("frame", 0)), str(m.get("color", "Yellow")), str(m.get("name", "")),
+                     str(m.get("note", "")), int(m.get("duration", 1)), str(m.get("custom_data", "")))
+
+    def _timeline_by_name(self, proj: Any, name: str) -> Any:
+        for idx in range(1, int(proj.GetTimelineCount() or 0) + 1):
+            tl = proj.GetTimelineByIndex(idx)
+            if tl is not None and tl.GetName() == name:
+                return tl
+        return None
+
+    def _create_timeline(self, mp: Any, bin_path: str, name: str, otio_abs: str | None, markers: list[Any]) -> Any:
+        mp.SetCurrentFolder(self._ensure_bin(mp, bin_path))
+        tl = None
+        if otio_abs and Path(otio_abs).is_file():
+            tl = mp.ImportTimelineFromFile(otio_abs, {"timelineName": name})
+        if tl is None:
+            tl = mp.CreateEmptyTimeline(name)
+        for m in markers or []:
+            self._add_marker(tl, m)
+        return tl
+
+    def execute(self, ops: Sequence[BridgeOp], *, run_id: str) -> dict[str, Any]:
+        proj = self._project()
+        mp = proj.GetMediaPool()
+        imported = 0
+        for op in ops:
+            k, p = op.kind, op.params
+            if k == "ensure_bin":
+                self._ensure_bin(mp, p.get("path", ""))
+            elif k == "import_media":
+                mp.SetCurrentFolder(self._ensure_bin(mp, p.get("bin_path", "")))
+                for item in p.get("items") or []:
+                    abs_path = item.get("abs_path") or item.get("path") or ""
+                    if not abs_path:
+                        continue
+                    clips = mp.ImportMedia([abs_path]) or []
+                    imported += len(clips)
+                    meta = dict(item.get("metadata") or {})
+                    kws = item.get("keywords") or []
+                    if kws:
+                        meta["Keywords"] = ", ".join(str(x) for x in kws)
+                    for ci in clips:
+                        for mk, mv in meta.items():
+                            try:
+                                ci.SetMetadata(str(mk), str(mv))
+                            except Exception:  # noqa: BLE001 - metadata is best effort, media is what matters
+                                pass
+            elif k == "create_timeline":
+                self._create_timeline(mp, p.get("bin_path", "/"), p["name"], p.get("otio_abs_path"),
+                                      p.get("markers") or [])
+            elif k == "create_master_timeline":
+                self._create_timeline(mp, "/MASTER", p["name"], p.get("otio_abs_path"), [])
+            elif k == "add_timeline_marker":
+                self._add_marker(self._timeline_by_name(proj, str(p.get("timeline_name", ""))), p)
+        self._ensure_bin(mp, f"/{RECEIPTS_BIN}/{run_id}/ok")
+        return {"run_id": run_id, "ok": True, "transport": self.name, "imported": imported,
+                "receipt": f"/{RECEIPTS_BIN}/{run_id}/ok"}
+
+
+class FailoverTransport:
+    """Try each transport in order; the first that lands the ops in Resolve wins. All failures are reported together.
+
+    Default real-mode chain: ``LuaMenuTransport`` (menu click) -> ``ScriptApiTransport`` (direct scripting API).
+    If every route fails the error carries the manual one-click fallback (the Lua bridge is already installed) and
+    the on-disk deliverables (OTIO + staged media) so the editor is never left without the clips.
+    """
+
+    name = "failover"
+
+    def __init__(self, *transports: Any) -> None:
+        self.transports = list(transports)
+        self.last_used: str | None = None
+        self.errors: list[str] = []
+
+    def execute(self, ops: Sequence[BridgeOp], *, run_id: str) -> dict[str, Any]:
+        self.errors = []
+        for tr in self.transports:
+            try:
+                res = tr.execute(ops, run_id=run_id)
+            except Exception as exc:  # noqa: BLE001 - every transport failure is recorded, then the next is tried
+                self.errors.append(f"{getattr(tr, 'name', type(tr).__name__)}: {exc}")
+                continue
+            if res and res.get("ok", True):
+                self.last_used = getattr(tr, "name", type(tr).__name__)
+                return {**res, "transport": self.last_used, "failover_errors": list(self.errors)}
+            self.errors.append(f"{getattr(tr, 'name', type(tr).__name__)}: reported not ok ({res})")
+        script = UTILITY_SCRIPTS_DIR / BRIDGE_SCRIPT_NAME
+        raise ResolveDeliveryError(
+            "Could not push the cut into DaVinci Resolve automatically:\n  - " + "\n  - ".join(self.errors) +
+            f"\nManual one-click fallback (the bridge script is already written to {script}):\n"
+            "  DaVinci Resolve -> Workspace -> Scripts -> Utility -> AGY_Bridge  (imports every clip, bins and the "
+            "timeline)\n"
+            "The finished scene cut (.mp4), the OTIO/FCPXML timeline and the staged take media are already on disk "
+            "under the production's post/ and scenes/<SID>/assembly/ folders.")
 
 
 # ---------------------------------------------------------------------------------------------

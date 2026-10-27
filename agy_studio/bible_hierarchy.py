@@ -404,7 +404,7 @@ def _write_global_bible_markdown(project: Project, gb: GlobalContextBible) -> Pa
     for cid, ch in gb.characters.items():
         lines.append(
             f"| `{cid}` | {ch.name} | `{ch.tier}` | `{ch.base_sheet_uri or 'pending'}` | "
-            f"`{ch.voice_profile_id or 'pending'}` | `{ch.voice_anchor_uri or 'audition at G4'}` |"
+            f"`{ch.voice_profile_id or 'pending'}` | `{ch.voice_anchor_uri or 'set from first approved take'}` |"
         )
     lines.append("")
     for cid, ch in gb.characters.items():

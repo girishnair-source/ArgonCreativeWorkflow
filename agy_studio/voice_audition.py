@@ -1,48 +1,93 @@
-"""Gate 4 Voice Discovery, Audition & Global Voice Bible Lock (`voice_audition.py`).
+"""Gate 4 Voice Discovery & Global Voice Bible Lock (`voice_audition.py`).
 
-Implements the Gate 4 workflow from the AGY Studio v4 blueprint:
-- Once the Storyboard (Gate 3) is locked, AGY inspects every speaking character in the scene:
-  1. **Existing character in Global Bible** (already has a locked ``VoiceProfile`` + ``reference_audio`` in
-     ``library/voices/``): reuses the locked voice from the Global Bible automatically.
-  2. **New character** (or character without a locked audition WAV): generates tone, voice timbre, pitch, and an
-     audition WAV sample (``scenes/<SC>/audio/auditions/<CHAR_ID>_audition.wav``) for Gate 4 review.
-- When Gate 4 is approved, :func:`lock_approved_voices_to_global_bible` promotes the audition WAV and ``VoiceProfile``
-  into ``library/voices/<CHAR_ID>/v<N>/`` and updates ``bible/global_context_bible.yaml`` so all subsequent scenes
-  reuse the exact same voice print.
+What Gate 4 locks is a **voice specification** — text — not audio:
+
+* Gemini Omni / Veo generate the speech natively while rendering the clip; the only voice signal that reaches the
+  video model is the per-line ``voice`` text that :mod:`agy_studio.prompt_engineer` fills from
+  :attr:`VoiceProfile.description` (``registry.yaml`` has ``voice_reference_audio: false`` for both models).
+* Therefore no audition WAV is synthesised here. (An earlier version wrote a 2.4 s sine tone as the "audition" and
+  then used it as ``anchor_wav`` — the QA critic compared real Omni speech against a sine tone and hard-rejected every
+  take as ``speaker_voice_mismatch``.) The real acoustic anchor is still the dialogue of the first approved speaking
+  take (:meth:`Studio.set_voice_anchor`), extracted from genuine model output.
+
+Workflow:
+
+1. **Existing character in the Global Bible** (locked ``VoiceProfile``): reused automatically.
+2. **New character**: a deterministic, physical voice spec (sex/age register, timbre, pitch band, pace, language and
+   accent) is derived from the character's Bible description and staged as a ``proposed`` ``VoiceProfile`` for Gate 4.
+3. On Gate 4 approval :func:`lock_approved_voices_to_global_bible` locks the profiles in
+   ``bible/global_context_bible.yaml`` so every later scene reuses the identical voice spec.
 """
 
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 from typing import Any
 
-from . import media
 from .bible_hierarchy import build_global_context_bible, load_global_context_bible
-from .fsio import generated_by, next_version_path, validate_id
+from .fsio import generated_by, validate_id
 from .models import ApprovalStatus, VoiceProfile
 from .project import Project
 
 AGENT = "agy.voice_audition"
 
+_FEMALE_WORDS = ("female", "woman", "mother", "sister", "girl", "daughter", "wife", "aunt", "grandmother", "lady",
+                 "she ", "her ")
+_SYNTHETIC_WORDS = ("automated", "synthetic", "robot", "ai ", "sphere", "device", "speaker voice", "announcer")
+_ELDER_WORDS = ("father", "older", "elderly", "grandfather", "uncle", "baritone", "deep", "stern", "veteran", "60s",
+                "70s", "aged")
+_CHILD_WORDS = ("child", "kid", "boy", "little", "young girl", "young boy", "teen", "school")
+
 
 def _character_pitch_hz(character_id: str, description: str = "") -> float:
-    """Deterministic fundamental pitch from character description / id for audition synthesis."""
+    """Deterministic fundamental pitch (Hz) from the character description / id — the centre of the voice's band."""
     desc = (description or "").lower()
     digest = int(hashlib.sha256(character_id.encode("utf-8")).hexdigest()[:4], 16)
     jitter = (digest % 25) - 12
-    if any(w in desc for w in ("female", "woman", "mother", "sister", "girl", "ria", "mom")):
+    if any(w in desc for w in _CHILD_WORDS):
+        return float(260 + jitter)
+    if any(w in desc for w in _FEMALE_WORDS):
         return float(210 + jitter)
-    if any(w in desc for w in ("automated", "synthetic", "robot", "ai", "sphere")):
+    if any(w in desc for w in _SYNTHETIC_WORDS):
         return float(165 + jitter)
-    if any(w in desc for w in ("father", "older", "baritone", "deep", "stern")):
+    if any(w in desc for w in _ELDER_WORDS):
         return float(115 + jitter)
     return float(135 + jitter)
 
 
+def voice_spec_from_description(character_id: str, name: str, description: str, language: str | None) -> str:
+    """A compact, physical voice specification the video model can act on (no audio involved).
+
+    Deterministic for a given description so re-runs lock the same spec; the Director can still edit it at Gate 4
+    (``C01:regen "<delivery note>"``) and the Voice Director agent refines per-line delivery on top of it.
+    """
+    desc = (description or "").lower()
+    pitch = _character_pitch_hz(character_id, description)
+    if any(w in desc for w in _CHILD_WORDS):
+        register, timbre = "child voice", "light, bright timbre"
+    elif any(w in desc for w in _FEMALE_WORDS):
+        register, timbre = "adult female voice", "warm mezzo timbre with clear diction"
+    elif any(w in desc for w in _SYNTHETIC_WORDS):
+        register, timbre = "neutral synthetic announcer voice", "even, slightly compressed timbre"
+    elif any(w in desc for w in _ELDER_WORDS):
+        register, timbre = "older adult male voice", "deep, grainy baritone"
+    else:
+        register, timbre = "adult male voice", "grounded medium-low timbre, slight chest resonance"
+    pace = "measured, natural conversational pace"
+    if any(w in desc for w in ("anxious", "nervous", "young", "energetic", "excited", "influencer", "streamer")):
+        pace = "quick, energetic conversational pace"
+    elif any(w in desc for w in ("calm", "stern", "authority", "officer", "doctor", "judge")):
+        pace = "slow, deliberate, authoritative pace"
+    lang = f"speaks {language}" if language else "speaks in the script's native language"
+    return (f"{name}: {register}, {timbre}, fundamental pitch around {pitch:.0f} Hz, {pace}; {lang} with natural "
+            f"native articulation; same voice in every shot — no accent drift, no pitch shift between takes.")
+
+
 def prepare_scene_voices(project: Project, scene_id: str, *, fake: bool = False) -> dict[str, Any]:
-    """Ensure every speaking character in ``scene_id`` either reuses a locked Global Bible voice or gets a generated
-    audition sample + VoiceProfile staged for Gate 4 approval.
+    """Ensure every speaking character in ``scene_id`` has a VoiceProfile: reused from the Global Bible when locked,
+    otherwise a proposed voice spec staged for Gate 4. **No audio is generated** (see module docstring).
+
+    ``fake`` is accepted for signature compatibility; the function is pure bookkeeping in every mode.
     """
     validate_id(scene_id, "scene id")
     scene = project.load_scene(scene_id)
@@ -50,38 +95,29 @@ def prepare_scene_voices(project: Project, scene_id: str, *, fake: bool = False)
     speakers = list(dict.fromkeys(ln.character_id for ln in scene.dialogue))
 
     reused_voices: list[dict[str, Any]] = []
-    new_auditions: list[dict[str, Any]] = []
-
-    audition_dir = project.scene_dir(scene_id) / "audio" / "auditions"
-    audition_dir.mkdir(parents=True, exist_ok=True)
+    new_specs: list[dict[str, Any]] = []
 
     for char_id in speakers:
         vp = project.load_voice_profile(char_id)
         g_char = gb.characters.get(char_id)
 
-        # Case 1: Voice already locked in Global Bible with a valid reference audio file
-        existing_ref = (vp.reference_audio or vp.anchor_wav) if vp else (g_char.voice_anchor_uri if g_char else None)
-        if (
-            vp is not None
-            and vp.approval_status == ApprovalStatus.LOCKED
-            and existing_ref
-            and str(existing_ref).startswith("library/")
-            and project.abs(existing_ref).is_file()
-        ):
+        # Case 1: voice spec already locked in the Global Bible -> reuse verbatim
+        if vp is not None and vp.approval_status == ApprovalStatus.LOCKED:
             reused_voices.append(
                 {
                     "character_id": char_id,
                     "voice_id": vp.id,
                     "voice_profile_id": vp.id,
                     "description": vp.description,
-                    "reference_audio": existing_ref,
-                    "anchor_wav": existing_ref,
+                    "anchor_take": vp.anchor_take,
+                    "anchor_wav": vp.anchor_wav,
+                    "reference_audio": vp.reference_audio,
                     "source": "global_bible",
                 }
             )
             continue
 
-        # Case 2: New character or voice without a locked audition sample -> generate tone/pitch/audition WAV
+        # Case 2: new character (or an unlocked profile) -> derive a physical voice spec from the Bible description
         if vp is None:
             ent = None
             try:
@@ -89,38 +125,27 @@ def prepare_scene_voices(project: Project, scene_id: str, *, fake: bool = False)
             except FileNotFoundError:
                 pass
             ent_name = (getattr(ent, "display_name", None) or getattr(ent, "name", None) or ent.id) if ent else char_id
-            base_desc = (
-                f"Natural cinematic voice for {ent_name} ({ent.canonical_description[:120]})"
-                if ent
-                else f"Clear, grounded vocal timbre for {char_id}, medium pitch, natural conversational pace"
-            )
+            canonical = getattr(ent, "canonical_description", "") if ent else ""
+            if not canonical and g_char is not None:
+                canonical = str(getattr(g_char, "description", "") or "")
             vp = VoiceProfile(
                 id=f"VOICE_{char_id}",
                 character_id=char_id,
-                description=base_desc,
+                description=voice_spec_from_description(char_id, ent_name, canonical, project.config.language),
                 language=project.config.language,
                 approval_status=ApprovalStatus.PROPOSED,
-                generated_by=generated_by(AGENT),
+                generated_by=generated_by(AGENT, notes=f"voice spec derived from Bible description for {scene_id}"),
             )
+            project.save_voice_profile(vp)
 
-        freq = _character_pitch_hz(char_id, vp.description)
-        wav_path = next_version_path(audition_dir, f"{char_id}_audition", ".wav")
-        media.write_wav(wav_path, duration_s=2.4, freq_hz=freq)
-        rel_wav = project.rel(wav_path)
-
-        vp.reference_audio = rel_wav
-        vp.generated_by = generated_by(AGENT, notes=f"audition staged in {scene_id} ({freq:.0f} Hz)")
-        project.save_voice_profile(vp)
-
-        new_auditions.append(
+        new_specs.append(
             {
                 "character_id": char_id,
                 "voice_id": vp.id,
                 "voice_profile_id": vp.id,
                 "description": vp.description,
-                "pitch_hz": freq,
-                "audition_wav": rel_wav,
-                "source": "new_audition",
+                "pitch_hz": _character_pitch_hz(char_id, vp.description),
+                "source": "new_voice_spec",
             }
         )
 
@@ -129,9 +154,9 @@ def prepare_scene_voices(project: Project, scene_id: str, *, fake: bool = False)
         "scene_id": scene_id,
         "reused_from_global": reused_voices,
         "reused_from_global_bible": reused_voices,
-        "auditioned": new_auditions,
-        "new_auditions": new_auditions,
-        "auto_pass_eligible": len(new_auditions) == 0,
+        "auditioned": new_specs,  # name kept for callers; these are text specs, not audio auditions
+        "new_voice_specs": new_specs,
+        "auto_pass_eligible": len(new_specs) == 0,
     }
 
 
@@ -142,8 +167,10 @@ def lock_approved_voices_to_global_bible(
     decision_id: str | None = None,
     user: str = "director",
 ) -> list[str]:
-    """Promote all speaking characters' approved voices in ``scene_id`` into ``library/voices/`` and lock them in
-    ``GlobalContextBible`` so future scenes reuse them automatically.
+    """Lock every speaking character's voice spec in the Global Bible so later scenes reuse it verbatim.
+
+    Only the specification is locked here. ``anchor_take`` / ``anchor_wav`` stay empty until the first approved
+    speaking take sets them from real model output (:meth:`Studio.set_voice_anchor`) — never from synthetic audio.
     """
     validate_id(scene_id, "scene id")
     scene = project.load_scene(scene_id)
@@ -157,32 +184,14 @@ def lock_approved_voices_to_global_bible(
             vp = project.load_voice_profile(char_id)
         if vp is None:
             continue
-
-        # Ensure a WAV exists to promote into library/voices/<CHAR_ID>/vN/
-        src_wav: Path | None = None
-        if vp.reference_audio and project.abs(vp.reference_audio).is_file():
-            src_wav = project.abs(vp.reference_audio)
-        elif vp.anchor_wav and project.abs(vp.anchor_wav).is_file():
-            src_wav = project.abs(vp.anchor_wav)
-        else:
-            audition_dir = project.scene_dir(scene_id) / "audio" / "auditions"
-            audition_dir.mkdir(parents=True, exist_ok=True)
-            tmp_wav = audition_dir / f"{char_id}_audition_v1.wav"
-            media.write_wav(tmp_wav, duration_s=2.4, freq_hz=_character_pitch_hz(char_id, vp.description))
-            src_wav = tmp_wav
-
-        if not (vp.reference_audio and str(vp.reference_audio).startswith("library/")):
-            prov = generated_by(AGENT, notes=f"locked at Gate 4 ({scene_id}) by {user}")
-            rels = project.promote_library_files(("voices", char_id), {"audition.wav": src_wav}, provenance=prov)
-            vp.reference_audio = next(iter(rels.values()))
-        if not vp.anchor_wav:
-            vp.anchor_wav = vp.reference_audio
-
         was_locked = vp.approval_status == ApprovalStatus.LOCKED
+        if was_locked:
+            locked_chars.append(char_id)
+            continue
         vp.approval_status = ApprovalStatus.LOCKED
         vp.version += 1
-        vp.generated_by = generated_by(AGENT, notes=f"locked in Global Bible at G4 ({scene_id})")
-        project.save_voice_profile(vp, confirm_decision_id=decision_id if was_locked else None)
+        vp.generated_by = generated_by(AGENT, notes=f"voice spec locked in Global Bible at G4 ({scene_id}) by {user}")
+        project.save_voice_profile(vp)
         locked_chars.append(char_id)
 
     build_global_context_bible(project, save=True)

@@ -49,7 +49,7 @@ agy_studio_root/
 │   ├── adapters/auth.py             # Fail-fast gcloud credential pre-flight (no offline fallback)
 │   ├── generic_bible.py             # Tier-0 Generic Bible, Multi-Shot Compiler & Bundle Exporter
 │   ├── bible_hierarchy.py           # GlobalContextBible, SceneBible & 3-Tier Reference Resolver
-│   ├── voice_audition.py            # Gate 4 Voice Discovery, Audition & Global Bible Lock
+│   ├── voice_audition.py            # Gate 4 voice SPEC lock (text into the video prompt; no audio)
 │   ├── vault.py                     # Searchable Rejected Video Vault & Gate 6 Freeze/Backup
 │   ├── orchestrator.py              # Gate G1-G7 state machine & autopilot/director modes
 │   ├── models.py                    # Strict Pydantic v2 data models
@@ -113,7 +113,7 @@ productions/<PROJECT_ID>/
 │   ├── props/                           # Locked prop packs
 │   ├── environments/                    # Locked location plates & cam:<NAME> angles
 │   ├── packs/                           # Versioned turnaround packs (v1, v2...)
-│   ├── voices/                          # Locked character voice profiles & audition WAV anchors
+│   ├── voices/                          # Locked voice profiles; anchor WAV = dialogue of the first approved real take
 │   ├── rejected_takes_vault.jsonl       # Gate 5/6 Searchable Rejected Video Metadata Index
 │   └── rejected_takes_vault.html        # Interactive browser UI to search & filter rejected videos
 │
@@ -126,7 +126,7 @@ productions/<PROJECT_ID>/
 │       ├── shots/                       # Gate 3 ShotSpecs (SH01.yaml, SH02.yaml...)
 │       ├── boards/                      # Gate 3 Storyboard keyframes & animatics
 │       ├── clips/                       # Decomposed GenClips with 7-layer visual + 4-layer audio specs
-│       ├── audio/                       # Gate 4 voice auditions, SFX supplements & music cues
+│       ├── audio/                       # SFX supplements & music cues
 │       ├── takes/                       # Gate 5 generated video takes & QA Critic JSON reports
 │       ├── review/                      # Gate 2/3/5 review packets & Interactive HTML Dashboards
 │       │   └── G5_<TIMESTAMP>/

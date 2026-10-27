@@ -309,22 +309,31 @@ def test_gate3_blender_export_and_screenshot_reanchor(tmp_path: Path) -> None:
     assert updated_shot.board_frame == re_res["board_frame"]
 
 
-def test_gate4_voice_audition_and_global_lock(tmp_path: Path) -> None:
+def test_gate4_voice_spec_lock_without_audio(tmp_path: Path) -> None:
     proj = _seed_v4_project(tmp_path)
-    # First time CHAR_HERO speaks: generates audition WAV
+    # First time CHAR_HERO speaks: a physical voice SPEC (text) is staged — no audition audio is synthesised,
+    # because Omni/Veo generate the speech themselves from the per-line `voice` text.
     rep1 = prepare_scene_voices(proj, "SC01", fake=True)
     assert len(rep1["auditioned"]) == 1
     assert rep1["auto_pass_eligible"] is False
-    aud_wav = rep1["auditioned"][0]["audition_wav"]
-    assert proj.abs(aud_wav).is_file()
+    spec = rep1["auditioned"][0]["description"]
+    assert "Hz" in spec and "pace" in spec and "same voice in every shot" in spec
+    assert "audition_wav" not in rep1["auditioned"][0]
+    assert not list((proj.scene_dir("SC01") / "audio").rglob("*.wav")) if (proj.scene_dir("SC01") / "audio").exists() else True
+    vp = proj.load_voice_profile("CHAR_HERO")
+    assert vp is not None and vp.reference_audio is None and vp.anchor_wav is None  # anchor comes from a real take
 
-    # Approve at Gate 4 -> promotes voice into library/voices/ and locks in Global Bible
+    # Approve at Gate 4 -> locks the spec in the Global Bible (still no audio, no fake anchor)
     locked = lock_approved_voices_to_global_bible(proj, "SC01")
     assert "CHAR_HERO" in locked
+    vp = proj.load_voice_profile("CHAR_HERO")
+    assert vp is not None and vp.approval_status.value == "locked" and vp.anchor_wav is None
+    assert not list(proj.path("library", "voices").rglob("*.wav")) if proj.path("library", "voices").exists() else True
 
-    # Next scene with the same speaker reuses the locked voice from Global Bible automatically!
+    # Next scene with the same speaker reuses the locked spec automatically
     rep2 = prepare_scene_voices(proj, "SC01", fake=True)
     assert len(rep2["reused_from_global"]) == 1
+    assert rep2["reused_from_global"][0]["description"] == spec
     assert len(rep2["auditioned"]) == 0
     assert rep2["auto_pass_eligible"] is True
 

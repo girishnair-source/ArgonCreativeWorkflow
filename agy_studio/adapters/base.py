@@ -882,7 +882,9 @@ class LegacyVideoAdapter(VideoAdapter):
     def gcs_prefix(self, payload: GenerationPayload, attempt: int) -> str | None:
         if self.inline_delivery:
             return None
-        root = self.gcs_output_root or os.environ.get("VERTEX_GCS_BUCKET_ROOT") or str(self.legacy().GCS_BUCKET_ROOT)
+        root = self.gcs_output_root or os.environ.get("VERTEX_GCS_BUCKET_ROOT") or ""
+        if not root.strip():
+            return None  # no bucket configured -> inline delivery (there is no default bucket, by design)
         project_id = self.project.project_id if self.project is not None else "ADHOC"
         return f"{root.rstrip('/')}/agy/{project_id}/{payload.payload_hash}/a{int(attempt)}"
 

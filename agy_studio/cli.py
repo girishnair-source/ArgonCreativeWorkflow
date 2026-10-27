@@ -98,11 +98,6 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--aspect", choices=("9:16", "16:9"), default="9:16")
     c.add_argument("--fps", type=int, default=24)
 
-    c = add("migrate", "Phase 0: adopt the existing LFKOD episodes into an AGY project (non-destructive)")
-    c.add_argument("--project-id", default="LFKOD_S01")
-    c.add_argument("--dry-run", action="store_true")
-    c.add_argument("--no-media", action="store_true", help="index legacy clips without copying them")
-
     c = add("status", "project / scene status")
     c.add_argument("scene", nargs="?")
 
@@ -355,26 +350,11 @@ def _init(ws: Path, a: argparse.Namespace) -> str:
             f"mode={mode_val.value}, format={fmt_val.value}) at {proj.root}")
 
 
-def _migrate(ws: Path, a: argparse.Namespace) -> str:
-    from .migrate_legacy import migrate_lfkod
-
-    res = migrate_lfkod(ws, project_id=a.project_id, import_media=not a.no_media, dry_run=a.dry_run)
-    for attr in ("text", "summary"):
-        v = getattr(res, attr, None)
-        if callable(v):
-            return str(v())
-        if isinstance(v, str):
-            return v
-    return str(res)
-
-
 def run(argv: list[str] | None = None) -> str:
     a = build_parser().parse_args(argv)
     ws = Path(a.workspace).expanduser().resolve() if a.workspace else find_workspace()
     if a.cmd == "init":
         return _init(ws, a)
-    if a.cmd == "migrate":
-        return _migrate(ws, a)
     if a.cmd == "registry":
         return _registry_text()
     if a.cmd == "export-bundle":

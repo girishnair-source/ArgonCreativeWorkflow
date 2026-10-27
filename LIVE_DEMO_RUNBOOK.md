@@ -1,25 +1,25 @@
-# 🎬 AGY Studio v5 — Clean Shareable Starter Kit & Deterministic Live Demo Runbook
+# 🎬 AGY Studio v5 — Shareable Starter Kit & Deterministic Live Demo Runbook
 
-This document is both your **On-Stage Presenter Runbook** and the **Post-Demo Audience Handoff Guide** bundled inside [`dist/AGY_STUDIO_STARTER_KIT.zip`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT.zip).
+This document is both your **On-Stage Presenter Runbook** and the **Post-Demo Audience Handoff Guide**. The
+repository itself is the starter kit: `git clone https://github.com/girishnair-source/ArgonCreativeWorkflow.git`
+(or download the GitHub ZIP) and open the folder in Antigravity.
 
 ---
 
-## 1. The Shareable Audience Starter Kit (`dist/AGY_STUDIO_STARTER_KIT.zip`)
+## 1. The Shareable Audience Starter Kit (this repository)
 
-We have fixed all underlying root causes directly in the `agy_studio` codebase (no scratch scripts or manual workarounds) and exported a clean, project-agnostic `898 KB` bundle ready to share with your audience after the talk:
+All root causes are fixed directly in the `agy_studio` codebase (no scratch scripts, no manual workarounds, no
+offline stand-ins), so the clean, project-agnostic repository is what you share with your audience after the talk.
 
-- **Unzipped Bundle Folder**: [`dist/AGY_STUDIO_STARTER_KIT/`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT)
-- **Distributable Zip Archive**: [`dist/AGY_STUDIO_STARTER_KIT.zip`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT.zip) (also in artifacts: [`AGY_STUDIO_STARTER_KIT.zip`](file:///Users/girishnair/.gemini/antigravity/brain/4b5d3c32-22ba-4840-9623-75acfe5254da/AGY_STUDIO_STARTER_KIT.zip))
-
-### What Is Inside `AGY_STUDIO_STARTER_KIT.zip` (23 Verified Core Paths)
+### What Is Inside the Repository (Verified Core Paths)
 
 | Component | Included Files in Starter Kit | Purpose for Audience & Live Demo |
 | :--- | :--- | :--- |
-| **1. Agent Rules & Anti-Hallucination Contract** | [`GEMINI.md`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT/GEMINI.md), [`.agents/AGENTS.md`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT/.agents/AGENTS.md), [`.agents/skills/autonomous-director/`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT/.agents/skills/autonomous-director/SKILL.md) | Enforces Zero-Touch Editor Mode, Mandatory Turn-1 `ask_question` Intake, Visual-Artifact-First Gate Lock, and 3-Anchor Reference Chain. |
-| **2. Core AGY v5 Harness Engine** | [`agy_studio/`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT/agy_studio) (`harness_v5.py`, `generic_bible.py`, `orchestrator.py`, `cli.py`, `registry.yaml`, `adapters/`, `set3d/`) | Native CLI (`python -m agy_studio ...`) with auto-detected `gcloud` project/token fallback, `360p` $\rightarrow$ `4K` DraftFinalize (`reuse_prompt_on_finalize=True`), `GeminiTTS38Line`, `3×3` Contact Sheet Critic, `33-Rig` Optical Matrix, `5-Track SceneSlate`, `StateTokenGuard`, and `TimelineGitRepo`. |
-| **3. Procedural 3D World & Blender 5.2 Exporter** | [`agy_studio/set3d/designer.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT/agy_studio/set3d/designer.py), [`blender_export.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT/agy_studio/set3d/blender_export.py), [`stylepass.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT/agy_studio/set3d/stylepass.py) | Converts **any** script location into `set.json`, `.blend`, `cam_renders_9_16/<CAM>_3d_clean.png`, and `<ENV_ID>_FPV_Director.html` (`60 FPS` browser FPV). |
-| **4. DaVinci Resolve MCP & NLE Sync** | [`resolve_mcp_server.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT/resolve_mcp_server.py), [`resolve_sync_trigger.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT/resolve_sync_trigger.py), [`mcp_config.json`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT/mcp_config.json) | Pushes multi-track video/audio cuts, `-14 LUFS` stems, subtitles, and markers directly into DaVinci Resolve Free/Studio. |
-| **5. One-Command Setup & Pre-Flight** | [`setup_studio_env.sh`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT/setup_studio_env.sh), [`live_demo_preflight.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT/live_demo_preflight.py), [`LIVE_DEMO_RUNBOOK.md`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/dist/AGY_STUDIO_STARTER_KIT/LIVE_DEMO_RUNBOOK.md) | Bootstraps `.venv`, `ffmpeg`, and `gcloud`, and verifies all v5 harness guards in `< 2s`. |
+| **1. Agent Rules & Anti-Hallucination Contract** | [`GEMINI.md`](./GEMINI.md), [`.agents/AGENTS.md`](./.agents/AGENTS.md), [`.agents/skills/autonomous-director/`](./.agents/skills/autonomous-director/SKILL.md) | Enforces Zero-Touch Editor Mode, Mandatory Turn-1 `ask_question` Intake, Visual-Artifact-First Gate Lock, and 3-Anchor Reference Chain. |
+| **2. Core AGY v5 Harness Engine** | [`agy_studio/`](./agy_studio) (`harness_v5.py`, `generic_bible.py`, `orchestrator.py`, `cli.py`, `registry.yaml`, `adapters/`, `set3d/`) | Native CLI (`python -m agy_studio ...`) with auto-detected `gcloud` project/token fallback, `360p` $\rightarrow$ `4K` DraftFinalize (`reuse_prompt_on_finalize=True`), `GeminiTTS38Line`, `3×3` Contact Sheet Critic, `33-Rig` Optical Matrix, `5-Track SceneSlate`, `StateTokenGuard`, and `TimelineGitRepo`. |
+| **3. Procedural 3D World & Blender 5.2 Exporter** | [`agy_studio/set3d/designer.py`](./agy_studio/set3d/designer.py), [`blender_export.py`](./agy_studio/set3d/blender_export.py), [`stylepass.py`](./agy_studio/set3d/stylepass.py) | Converts **any** script location into `set.json`, `.blend`, `cam_renders_9_16/<CAM>_3d_clean.png`, and `<ENV_ID>_FPV_Director.html` (`60 FPS` browser FPV). |
+| **4. DaVinci Resolve MCP & NLE Sync** | [`resolve_mcp_server.py`](./resolve_mcp_server.py), [`resolve_sync_trigger.py`](./resolve_sync_trigger.py), [`mcp_config.json`](./mcp_config.json) | Pushes multi-track video/audio cuts, `-14 LUFS` stems, subtitles, and markers directly into DaVinci Resolve Free/Studio. |
+| **5. One-Command Setup & Pre-Flight** | [`setup_studio_env.sh`](./setup_studio_env.sh), [`live_demo_preflight.py`](./live_demo_preflight.py), [`LIVE_DEMO_RUNBOOK.md`](./LIVE_DEMO_RUNBOOK.md) | Bootstraps `.venv`, `ffmpeg`, and `gcloud`, and verifies all v5 harness guards in `< 2s`. |
 | **6. Empty `productions/` Workspace** | `productions/.gitkeep` | Clean slate where the user's or audience's new show (`productions/<PROJECT_ID>/`) is created. |
 
 ---
@@ -28,15 +28,15 @@ We have fixed all underlying root causes directly in the `agy_studio` codebase (
 
 We eliminated every root cause that required manual intervention earlier:
 
-1. **Auto-Detected GCP Project & Token Fallback ([`agy_studio/adapters/base.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/agy_studio/adapters/base.py) & [`image.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/agy_studio/adapters/image.py))**:
+1. **Auto-Detected GCP Project & Token Fallback ([`agy_studio/adapters/base.py`](./agy_studio/adapters/base.py) & [`image.py`](./agy_studio/adapters/image.py))**:
    - Previously, `vertex_project_id()` defaulted to a hardcoded internal project ID (`ggn-non-prod-462303`), causing `403 PERMISSION_DENIED` when running native CLI commands.
    - **Fixed**: `vertex_project_id()` reads `VERTEX_PROJECT_ID` $\rightarrow$ `GOOGLE_CLOUD_PROJECT` $\rightarrow$ `gcloud config get-value project` and **stops with the `gcloud config set project` instruction when none is set** (no hidden default project). `gemini_client()` retries exactly once with `gcloud auth print-access-token` on an ADC `401`/`403`; if gcloud itself cannot mint a token the run stops immediately with gcloud's real error text (e.g. *Access was blocked by Context Aware Access*) and the fix commands — see [`agy_studio/adapters/auth.py`](agy_studio/adapters/auth.py).
    - **Fail-fast rule**: a credential problem is never retried with new seeds, never handed to the next provider model and never replaced by offline output (macOS `say`, `ffmpeg zoompan` stills, `AGY_FAKE_GENERATION`). `live_demo_preflight.py` now mints a real token and exits `1` with the same message, so run it before `G4`.
-2. **Automatic `/opt/homebrew/bin` PATH Injection ([`agy_studio/adapters/base.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/agy_studio/adapters/base.py))**:
+2. **Automatic `/opt/homebrew/bin` PATH Injection ([`agy_studio/adapters/base.py`](./agy_studio/adapters/base.py))**:
    - `ffmpeg`, `ffprobe`, `gcloud`, and `blender` are automatically resolved in non-interactive shells without needing manual `export PATH=...` — including Homebrew's `/opt/homebrew/share/google-cloud-sdk/bin`, the Caskroom SDK, `~/google-cloud-sdk/bin`, snap and Windows SDK paths.
-3. **Automatic Batch 3D Camera Rendering in `open_in_blender.py` ([`agy_studio/set3d/blender_export.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/agy_studio/set3d/blender_export.py))**:
+3. **Automatic Batch 3D Camera Rendering in `open_in_blender.py` ([`agy_studio/set3d/blender_export.py`](./agy_studio/set3d/blender_export.py))**:
    - Running `open_in_blender.py -- --save-and-render` now saves `<ENV_ID>.blend` **and** automatically renders every `CAM_<NAME>` in the 3D set to `cam_renders_9_16/<NAME>_3d_clean.png` for any environment generated from any audience script.
-4. **3-Anchor Reference Chain in Storyboard & Stylepass ([`agy_studio/orchestrator.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/agy_studio/orchestrator.py) & [`stylepass.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/agy_studio/set3d/stylepass.py))**:
+4. **3-Anchor Reference Chain in Storyboard & Stylepass ([`agy_studio/orchestrator.py`](./agy_studio/orchestrator.py) & [`stylepass.py`](./agy_studio/set3d/stylepass.py))**:
    - Every Gate G3 shot automatically passes `(1) 3D Camera Blockout PNG` + `(2) Approved G2 Master Room Plate` + `(3) Approved G2 Character Sheet(s)` so character faces, outfits, and room furniture never drift across angles.
 
 ---
@@ -45,7 +45,7 @@ We eliminated every root cause that required manual intervention earlier:
 
 ```mermaid
 flowchart TD
-    S0["Step 0: Unzip AGY_STUDIO_STARTER_KIT.zip\nOpen in Antigravity + Open DaVinci Resolve"] --> T1["Turn 1: Paste Audience Script\n→ Antigravity pops up 4-Question Intake Modal"]
+    S0["Step 0: Clone the repo\nOpen in Antigravity + Open DaVinci Resolve"] --> T1["Turn 1: Paste Audience Script\n→ Antigravity pops up 4-Question Intake Modal"]
     T1 --> T2["Turn 2: Gate G0 & G1 (Script Ingest + Global Bible)\n→ Review g1_bible_review.md"]
     T2 --> T3["Turn 3: Gate G2 (Cast Sheets + Master Room + Live 3D Set)\n→ Blender 5.2 opens live + Review g2_visual_review.md"]
     T3 --> T4["Turn 4: Gate G3 (3D-Anchored Storyboards + 33-Rig Optics)\n→ Review g3_storyboard_review.md"]
@@ -130,7 +130,7 @@ Open the folder in **Antigravity**, open **DaVinci Resolve**, and paste:
   .venv/bin/python -m agy_studio --project LIVE_DEMO audio SC01
   ```
 - **What You & the Audience See**:
-  - Validates every line with [`GeminiTTS38Line`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/agy_studio/harness_v5.py) (`2.2 words/sec` budget, `0.6s` breath cushions, native script + `[acoustic delivery tags]` preserved for `gemini-3.8-tts`, and strict on-screen vs. off-screen `100% CLOSED` mouth rules).
+  - Validates every line with [`GeminiTTS38Line`](./agy_studio/harness_v5.py) (`2.2 words/sec` budget, `0.6s` breath cushions, native script + `[acoustic delivery tags]` preserved for `gemini-3.8-tts`, and strict on-screen vs. off-screen `100% CLOSED` mouth rules).
 - **Your Action**:
   - Reply: **"Approve G4 and run Gate G5 Two-Tier Video Generation."**
 

@@ -19,7 +19,7 @@ Your primary mandate is **Strict Visual Continuity with Zero Token Waste**.
      ```bash
      .venv/bin/python casting_agent.py --audit
      ```
-   - Or call `preflight_reference_sheet_check()` from [`casting_agent.py`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/casting_agent.py).
+   - Or call `preflight_reference_sheet_check()` from [`casting_agent.py`](../../casting_agent.py).
 
 2. **Ask the User Before Generating Any Missing Character or Location Sheet**:
    - If `missing_sheets` is non-empty, **STOP** and ask the user (using `ask_question` or direct prompt) before generating:
@@ -31,6 +31,6 @@ Your primary mandate is **Strict Visual Continuity with Zero Token Waste**.
    - Only generate new reference sheets for entities the user explicitly confirms need to be generated from scratch.
 
 3. **Cross-Episode & Cross-Location Continuity Rules**:
-   - Every character must have an `immutable_physical_prompt` (exact facial structure, skin/shader tone, hair geometry, proportions) and a `wardrobe_by_state` dictionary in [`production_bible.py`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/production_bible.py).
+   - Every character must have an `immutable_physical_prompt` (exact facial structure, skin/shader tone, hair geometry, proportions) and a `wardrobe_by_state` dictionary in [`production_bible.py`](../../production_bible.py).
    - Every shot keyframe generation passes up to 14 reference images on Nano Banana Pro (`gemini-3-pro-image`) or up to 3 reference images on local fallback (`[character_sheet_path, location_sheet_path, prev_shot_in_same_scene_path]`).
    - When transitioning to a **new scene or location**, NEVER pass the previous location's shot as a reference image — bind only the character sheet + the new location plate so lighting and backgrounds never bleed across locations.

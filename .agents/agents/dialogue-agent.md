@@ -21,14 +21,14 @@ Your mission is to guarantee **Human Dramatic Performance**, **Identical Charact
   - **Optimal Word Counts**:
     - **5-second shot**: **5 to 8 words** (Hard ceiling: 10 words).
     - **8-second shot**: **8 to 14 words** (Hard ceiling: 17 words).
-- Always validate every line using [`dialogue_agent.py`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/dialogue_agent.py):
+- Always validate every line using [`dialogue_agent.py`](../../dialogue_agent.py):
   ```bash
   .venv/bin/python dialogue_agent.py --text "<line>" --speaker <CHAR_ID> --duration 8.0
   ```
 - If `pacing_status == "OVER_BUDGET_RISK_OF_CLIPPING"`, trim filler words or split the exchange across two reverse shots.
 
 ## 2. Cross-Generation Acoustic Voice Lock (`CharacterVoiceProfile`)
-- Every speaking character MUST have a locked [`CharacterVoiceProfile`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/dialogue_agent.py#L48) specifying:
+- Every speaking character MUST have a locked [`CharacterVoiceProfile`](../../dialogue_agent.py#L48) specifying:
   - `vocal_gender_age_tag` (e.g., `"21-year-old urban Indian male"`)
   - `pitch_band` (e.g., `"warm mid-tenor (135-165 Hz)"`)
   - `timbre_and_texture` (e.g., `"youthful chest resonance, slightly breathy natural edge"`)

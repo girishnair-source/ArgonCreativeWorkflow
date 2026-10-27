@@ -15,20 +15,20 @@ description: >-
 
 You operate a closed-loop **Spec-Driven Studio Pipeline** supporting **2D/3D Cartoons, 20-Minute Episodic Shows, Feature Films, and Vertical Microdramas**:
 
-1. **Multi-Format Continuity Engine** ([`production_bible.py`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/production_bible.py) & [`schemas.py`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/schemas.py)) — Locks medium (`live_action_cinema`, `cartoon_2d_cel`, `cartoon_3d_stylized`, `anime_2d`, `stop_motion_clay`), aspect ratio (`16:9`, `9:16`, `2.39:1`), and hierarchical `Episode -> Scene -> Shot` continuity.
-2. **Token-Saving Casting & Location Agent** ([`casting_agent.py`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/casting_agent.py) / subagent `casting-agent`) — Audits disk for existing character turnaround sheets and location plates first, and **always asks the user for existing reference sheets before spending generation tokens**.
-3. **Human-Paced Single-Speaker Dialogue Agent** ([`dialogue_agent.py`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/dialogue_agent.py) / subagent `dialogue-agent`) — Enforces human word-count budgets (`8–14 words` per 8s shot with `0.6s` pre/post cushions), immutable character voice profiles (`CharacterVoiceProfile`), and single-speaker lip-lock isolation so silent listeners keep their mouths closed.
-4. **High-Fidelity Keyframe & Video Synthesis Backends** ([`production_bible.py`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/production_bible.py) & [`vertex_veo_director.py`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/vertex_veo_director.py)) —
+1. **Multi-Format Continuity Engine** ([`production_bible.py`](../../../production_bible.py) & [`schemas.py`](../../../schemas.py)) — Locks medium (`live_action_cinema`, `cartoon_2d_cel`, `cartoon_3d_stylized`, `anime_2d`, `stop_motion_clay`), aspect ratio (`16:9`, `9:16`, `2.39:1`), and hierarchical `Episode -> Scene -> Shot` continuity.
+2. **Token-Saving Casting & Location Agent** ([`casting_agent.py`](../../../casting_agent.py) / subagent `casting-agent`) — Audits disk for existing character turnaround sheets and location plates first, and **always asks the user for existing reference sheets before spending generation tokens**.
+3. **Human-Paced Single-Speaker Dialogue Agent** ([`dialogue_agent.py`](../../../dialogue_agent.py) / subagent `dialogue-agent`) — Enforces human word-count budgets (`8–14 words` per 8s shot with `0.6s` pre/post cushions), immutable character voice profiles (`CharacterVoiceProfile`), and single-speaker lip-lock isolation so silent listeners keep their mouths closed.
+4. **High-Fidelity Keyframe & Video Synthesis Backends** ([`production_bible.py`](../../../production_bible.py) & [`vertex_veo_director.py`](../../../vertex_veo_director.py)) —
    - **Primary Keyframe & Reference Sheet Engine**: **Nano Banana Pro (`gemini-3-pro-image`)** supporting **up to 14 reference images simultaneously** (`maxReferenceImages: 14`) for multi-character turnarounds, expression sheets, location plates, hero props, style sheets, and previous scene shots.
    - **Primary Video & Dialogue Engine**: **Gemini Omni 1.1 (`gemini-omni-1.1-flash`)** supporting **up to 10 reference images + 3 reference videos** (`reference-to-video`), native **1080p/4K**, **4–10s** durations, and **`extend_video`** (`video-extension`), with **Veo 3.1 (`veo-3.1-generate-001`)** on Vertex AI.
-5. **DaVinci Resolve Free Edition NLE Controller** ([`resolve_mcp_server.py`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/resolve_mcp_server.py) & [`resolve_sync_trigger.py`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/resolve_sync_trigger.py)) — Full 7-domain NLE MCP server plus zero-click Resolve Free UI/SQLite timeline synchronization.
+5. **DaVinci Resolve Free Edition NLE Controller** ([`resolve_mcp_server.py`](../../../resolve_mcp_server.py) & [`resolve_sync_trigger.py`](../../../resolve_sync_trigger.py)) — Full 7-domain NLE MCP server plus zero-click Resolve Free UI/SQLite timeline synchronization.
 
 ---
 
 ## 1. Mandatory 5-Gate Production Workflow
 
 ### Gate 0: Format, Medium & Global Style Bible Lock
-1. Define the project's [`GlobalStyleLock`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/production_bible.py#L114) in [`production_bible.py`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/production_bible.py):
+1. Define the project's [`GlobalStyleLock`](../../../production_bible.py#L114) in [`production_bible.py`](../../../production_bible.py):
    - **Medium**: `live_action_cinema`, `cartoon_2d_cel`, `cartoon_3d_stylized`, `anime_2d`, or `stop_motion_clay`.
    - **Scale**: `vertical_microdrama` (1–3 min, 9:16), `short_episode_20min` (15–30 scenes, 150–220 shots), `feature_movie`, or `animated_series`.
    - **Resolution Ceiling (DaVinci Resolve Free)**: Keep within **3840×2160 (UHD 16:9)** or **2160×3840 (Vertical 9:16)** at **<= 60 fps**.
@@ -46,12 +46,12 @@ You operate a closed-loop **Spec-Driven Studio Pipeline** supporting **2D/3D Car
    - Run `.venv/bin/python -m agy_studio set3d stylize <ENV_ID> <CAM>` so Nano Banana Pro repaints the 3D blockout using the locked geometry still as reference, promoting `cam_<CAM>.png` into `library/environments/` and registering `environment_angle: "cam:<CAM>"` for the Director, Cinematographer, and Shot Decomposer.
 
 ### Gate 2: Human Pacing, Voice Lock & Single-Speaker Isolation (`dialogue-agent`)
-1. Every speaking character must have a locked [`CharacterVoiceProfile`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/dialogue_agent.py#L48) (pitch band in Hz, vocal timbre, accent/dialect, target WPM).
-2. Validate every scene line with [`validate_dialogue_pacing()`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/dialogue_agent.py#L140):
+1. Every speaking character must have a locked [`CharacterVoiceProfile`](../../../dialogue_agent.py#L48) (pitch band in Hz, vocal timbre, accent/dialect, target WPM).
+2. Validate every scene line with [`validate_dialogue_pacing()`](../../../dialogue_agent.py#L140):
    - **5s shot**: 5–8 words optimal (10 words hard ceiling).
    - **8s shot**: 8–14 words optimal (17 words hard ceiling).
    - Leaves `0.6s` pre-roll reaction breath and `0.6s` post-roll tail cushion so speech never clips at the cut.
-3. Compile every spoken beat with [`compile_speaker_isolation_prompt()`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/dialogue_agent.py#L204):
+3. Compile every spoken beat with [`compile_speaker_isolation_prompt()`](../../../dialogue_agent.py#L204):
    - **Intended Speaker**: Anchored by name, wardrobe, and screen position (`"ONLY [Speaker] speaks and moves lips"`).
    - **Silent Listeners**: Every other visible character is explicitly locked with `"remains 100% SILENT with mouth CLOSED"`.
    - **Off-Screen / Phone / Narrator**: When `delivery_mode != "on_camera"`, **ALL visible on-screen characters' mouths are locked CLOSED**.

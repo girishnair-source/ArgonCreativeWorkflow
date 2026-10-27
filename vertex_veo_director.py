@@ -44,13 +44,13 @@ from production_bible import (
 )
 from schemas import ASSET_DIR
 
-VERTEX_PROJECT_ID = os.environ.get("VERTEX_PROJECT_ID", "ggn-non-prod-462303")
+# No hidden default project / bucket: AGY resolves the project through agy_studio.adapters.auth.vertex_project()
+# (VERTEX_PROJECT_ID / GOOGLE_CLOUD_PROJECT -> active gcloud config) and delivers inline when no bucket is set.
+VERTEX_PROJECT_ID = os.environ.get("VERTEX_PROJECT_ID") or os.environ.get("GOOGLE_CLOUD_PROJECT") or ""
 VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1")
 OMNI_LOCATION = os.environ.get("OMNI_LOCATION", "global")
 OMNI_MODEL_ID = "gemini-omni-1.1-flash-preview"
-GCS_BUCKET_ROOT = os.environ.get(
-    "VERTEX_GCS_BUCKET_ROOT", "gs://ggn-non-prod-462303-microdramas/StudioProductions"
-).rstrip("/")
+GCS_BUCKET_ROOT = os.environ.get("VERTEX_GCS_BUCKET_ROOT", "").rstrip("/")
 VEO_MODEL_CHAIN: list[str] = [
     OMNI_MODEL_ID,
     "veo-3.1-generate-001",
@@ -498,6 +498,11 @@ async def run_episode_on_vertex(
     extra_reference_images: list[Path] | None = None,
     extra_reference_videos: list[Path] | None = None,
 ) -> dict[str, Any]:
+    global VERTEX_PROJECT_ID  # noqa: PLW0603 - legacy CLI entry point; AGY adapters pass the project explicitly
+    if not VERTEX_PROJECT_ID:
+        from agy_studio.adapters import auth  # noqa: PLC0415
+
+        VERTEX_PROJECT_ID = auth.vertex_project()
     token = GcloudToken()
     veo_client = VertexVeoClient(VERTEX_PROJECT_ID, VERTEX_LOCATION, token)
     omni_client = GeminiOmniClient(VERTEX_PROJECT_ID, token, OMNI_LOCATION)

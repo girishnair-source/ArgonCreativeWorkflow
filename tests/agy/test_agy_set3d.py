@@ -109,7 +109,7 @@ def test_api_sets_and_layout(client):
     assert lay["environment_id"] == ENV and lay["primitives"]
     assert client.get("/api/set/ENV_NOPE").status_code == 404
     assert client.get("/").status_code == 200 and "three" in client.get("/").text
-    assert client.get("/static/vendor/three.module.js").status_code == 200
+    assert client.get("/static/vendor/three.module.min.js").status_code == 200
     assert client.get(f"/api/set/{ENV}/still").status_code == 200
 
 

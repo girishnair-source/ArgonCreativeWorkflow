@@ -9,11 +9,9 @@ import pytest
 from agy_studio.adapters.fake import SimulatedKill, default_backend, reset_default_backend
 from agy_studio.agents.runner import AgentScopeError, run_agent
 from agy_studio.decomposer import decompose_scene, decompose_shot
-from agy_studio.editor import assemble_scene
 from agy_studio.fsio import atomic_write_yaml, read_jsonl, read_yaml
 from agy_studio.invalidation import AnchorGraph, ConfirmRequiredError, apply_invalidation
 from agy_studio.linter import LintContext, lint_clip, lint_shot
-from agy_studio.migrate_legacy import migrate_lfkod
 from agy_studio.models import (
     ApprovalStatus,
     AudioLine,
@@ -582,19 +580,3 @@ def test_ac11_two_scene_end_to_end_and_master_assembly(tmp_path: Path) -> None:
     invocations = read_jsonl(project.path("logs", "agent_invocations.jsonl"))
     assert len(invocations) >= 2
     assert any(row.get("working_set_hash") for row in invocations)
-
-
-# ---------------------------------------------------------------------------
-# Phase 0 Legacy Migration smoke test
-# ---------------------------------------------------------------------------
-
-def test_phase0_migrate_legacy_non_destructive(tmp_path: Path) -> None:
-    repo_root = Path(__file__).resolve().parents[2]
-    proj = migrate_lfkod(repo_root, productions_dir=tmp_path, project_id="LFKOD_S01", import_media=False)
-    assert proj.project_id == "LFKOD_S01"
-    assert len(proj.list_entities()) >= 4
-    assert len(proj.list_environments()) >= 2
-    assert len(proj.list_scenes()) >= 2
-    total_shots = sum(len(proj.list_shots(s.id)) for s in proj.list_scenes())
-    total_beats = sum(len(s.beats) for s in proj.list_scenes())
-    assert total_shots == 18 or total_beats == 8

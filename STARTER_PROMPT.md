@@ -14,7 +14,7 @@ Antigravity will automatically clone `https://github.com/girishnair-source/Argon
 ---
 
 ## Option B — Start Inside an Already-Cloned or Unzipped Starter Kit Folder
-If you have already cloned the repo or unzipped `AGY_STUDIO_STARTER_KIT.zip` and opened that folder in **Antigravity IDE**, paste:
+If you have already cloned the repo (or downloaded its ZIP) and opened that folder in **Antigravity IDE**, paste:
 
 ```text
 Start a new production in AGY Studio and guide me step by step from script to Final Edited Video.

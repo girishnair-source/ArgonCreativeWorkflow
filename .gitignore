@@ -21,3 +21,10 @@ productions/*
 !productions/.gitkeep
 generated_assets/
 *.zip
+debug_frames/
+rendered_exports/
+*.mp4
+*.mov
+*.wav
+*.blend
+*.blend1

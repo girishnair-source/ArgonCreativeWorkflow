@@ -42,12 +42,11 @@ agy_studio_root/
 │   ├── skills/                      # On-demand skills
 │   │   ├── autonomous-director/SKILL.md
 │   │   └── prompt-videos/SKILL.md   # Replicate multi-shot commercial & 7-layer video prompting
-│   └── plugins/
-│       └── autonomous-director/     # Packaged plugin bundle
 │
 ├── agy_studio/                      # Deterministic v4 Orchestration Engine (MUST BE SHARED)
 │   ├── __init__.py & __main__.py
 │   ├── cli.py                       # Unified CLI (.venv/bin/python -m agy_studio ...)
+│   ├── adapters/auth.py             # Fail-fast gcloud credential pre-flight (no offline fallback)
 │   ├── generic_bible.py             # Tier-0 Generic Bible, Multi-Shot Compiler & Bundle Exporter
 │   ├── bible_hierarchy.py           # GlobalContextBible, SceneBible & 3-Tier Reference Resolver
 │   ├── voice_audition.py            # Gate 4 Voice Discovery, Audition & Global Bible Lock

@@ -22,7 +22,7 @@ Follow these rules strictly on every turn:
 
 3. **Primary Media Generation Tier — Nano Banana Pro (14 References) & Gemini Omni 1.1 / Vertex Veo 3.1**:
    - **Keyframes & Reference Sheets**: Default to **Nano Banana Pro (`gemini-3-pro-image`)** on Vertex AI, passing **up to 14 reference images** simultaneously (`compiled_shot.reference_image_paths` — character turnarounds, expression sheets, location plates, hero props, style bible, and preceding scene shots), or built-in `generate_image` (up to 3 refs).
-   - **Video & Dialogue Clips**: Default to **Gemini Omni 1.1 (`gemini-omni-1.1-flash`)** (up to 10 reference images + 3 reference videos, native **1080p/4K**, **4–10s** durations, and **`extend_video`**) or **Vertex AI Veo 3.1 (`veo-3.1-generate-001`)** via [`vertex_veo_director.py`](file:///Users/girishnair/Desktop/GGN/POC/GEMINI%204/vertex_veo_director.py).
+   - **Video & Dialogue Clips**: Default to **Gemini Omni 1.1 (`gemini-omni-1.1-flash`)** (up to 10 reference images + 3 reference videos, native **1080p/4K**, **4–10s** durations, and **`extend_video`**) or **Vertex AI Veo 3.1 (`veo-3.1-generate-001`)** via [`vertex_veo_director.py`](../../vertex_veo_director.py).
    - **Cinematic Multi-Shot Staging**: Stage and prompt scenes as dynamic cinematic multi-shot sequences (e.g. `[Beat 1: 0s-4s Master / OTS Angle] -> [Cinematic Cut at 4s to Beat 2: Reverse Reaction Close-Up]`) to maximize dramatic pacing and visual momentum.
 
 4. **Zero-Click DaVinci Resolve Delivery**:

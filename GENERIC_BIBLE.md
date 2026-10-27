@@ -3,7 +3,7 @@
 > [!IMPORTANT]
 > **How Bibles Work in the AGY Studio Starter Kit (Two-Part Architecture)**
 > 1. **Tier-0 Universal Filmmaking Bible (`GENERIC_BIBLE.md` — Shipped Inside the Starter Kit)**:
->    This human-readable document (and its executable companion [`agy_studio/generic_bible.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/agy_studio/generic_bible.py)) is bundled directly inside `AGY_STUDIO_STARTER_KIT.zip`. It locks the universal cinematography grammar, virtual cinema optical glass, 33 physical camera rigs, 7-layer visual + 4-layer audio prompt compiler, single-speaker lip-sync laws, and 3-tier anti-hallucination reference lookup used across **every** production.
+>    This human-readable document (and its executable companion [`agy_studio/generic_bible.py`](./agy_studio/generic_bible.py)) ships in this repository. It locks the universal cinematography grammar, virtual cinema optical glass, 33 physical camera rigs, 7-layer visual + 4-layer audio prompt compiler, single-speaker lip-sync laws, and 3-tier anti-hallucination reference lookup used across **every** production.
 > 2. **Per-Script Gate G1 Global Bible (`productions/<PROJECT_ID>/bible/GLOBAL_BIBLE.md`) & Gate G2 Scene Bibles (`scenes/<SC>/SCENE_BIBLE.md`)**:
 >    Whenever an audience member or director feeds **any** screenplay into `.venv/bin/python -m agy_studio ingest <script.fountain>` and runs `.venv/bin/python -m agy_studio g1` (or `.venv/bin/python -m agy_studio bible`), AGY Studio automatically generates a human-readable Markdown **Global Bible** (`bible/GLOBAL_BIBLE.md`) and per-scene **Scene Bibles** (`scenes/SC01/SCENE_BIBLE.md`) tailored to that script.
 
@@ -32,7 +32,7 @@
 
 ## 2. Two-Layer Bible Hierarchy & Strict 3-Tier Anti-Hallucination Reference Lookup
 
-To prevent character face drift, costume changes, or hallucinated room geometry across scenes, AGY Studio enforces a strict two-layer Bible hierarchy ([`agy_studio/bible_hierarchy.py`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/agy_studio/bible_hierarchy.py)):
+To prevent character face drift, costume changes, or hallucinated room geometry across scenes, AGY Studio enforces a strict two-layer Bible hierarchy ([`agy_studio/bible_hierarchy.py`](./agy_studio/bible_hierarchy.py)):
 
 ```mermaid
 flowchart TD
@@ -142,7 +142,7 @@ Every shot compiled by AGY Studio is anchored to a physical cinema camera body, 
 
 ## 5. Deterministic 7-Layer Visual + 4-Layer Audio Prompt Compiler
 
-Every image and video prompt compiled by [`compile_generic_bible_prompt()`](file:///Users/girishnair/Desktop/GGN/AGY/MDC/agy_studio/generic_bible.py#L253-L332) enforces:
+Every image and video prompt compiled by [`compile_generic_bible_prompt()`](./agy_studio/generic_bible.py#L253-L332) enforces:
 
 ### 5.1 The 7 Mandatory Visual Layers (`SevenLayerVisualSpec`)
 1. **Subject**: Canonical character/prop appearance locked to `[Image1]`..`[ImageN]` reference sheets.

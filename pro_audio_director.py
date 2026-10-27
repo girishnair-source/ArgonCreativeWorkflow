@@ -27,7 +27,17 @@ from schemas import ASSET_DIR
 os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
-VERTEX_PROJECT_ID = os.environ.get("VERTEX_PROJECT_ID", "ggn-non-prod-462303")
+
+
+def _vertex_project() -> str:
+    """Vertex project from the env or the active gcloud config — never a hidden default.
+
+    A missing project raises ``agy_studio.adapters.auth.AuthError`` with the one command that sets it.
+    """
+    from agy_studio.adapters import auth  # noqa: PLC0415 - stdlib-only module shared with the AGY adapters
+
+    return auth.vertex_project()
+
 VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1")
 OMNI_LOCATION = os.environ.get("OMNI_LOCATION", "global")
 OMNI_MODEL_ID = "gemini-omni-1.1-flash-preview"
@@ -56,10 +66,11 @@ def generate_lyria_music_stem(
     raw_lyria_wav = target_wav.parent / f".raw_lyria_{target_wav.name}"
 
     try:
+        project = _vertex_project()
         token = _gcloud_token()
         url = (
             f"https://{VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/"
-            f"{VERTEX_PROJECT_ID}/locations/{VERTEX_LOCATION}/publishers/google/models/lyria-002:predict"
+            f"{project}/locations/{VERTEX_LOCATION}/publishers/google/models/lyria-002:predict"
         )
         body: dict[str, Any] = {
             "instances": [{"prompt": prompt, "negative_prompt": negative_prompt}],
@@ -71,7 +82,7 @@ def generate_lyria_music_stem(
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
-                "x-goog-user-project": VERTEX_PROJECT_ID,
+                "x-goog-user-project": project,
             },
             json=body,
             timeout=120.0,
@@ -149,10 +160,11 @@ def generate_omni_360p_sfx_batch(
     results: dict[str, Path] = {}
     pending: list[tuple[str, str, Path, int]] = []  # (interaction_id, prompt, target_wav, dur)
 
-    creds = Credentials(token=_gcloud_token(), quota_project_id=VERTEX_PROJECT_ID)
+    project = _vertex_project()
+    creds = Credentials(token=_gcloud_token(), quota_project_id=project)
     client = genai.Client(
         enterprise=True,
-        project=VERTEX_PROJECT_ID,
+        project=project,
         location=OMNI_LOCATION,
         credentials=creds,
     )

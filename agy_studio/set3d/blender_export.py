@@ -692,7 +692,7 @@ def export_standalone_fpv_html(project: Project, layout: SetLayout) -> Path:
     index_html = (viewer_dir / "index.html").read_text(encoding="utf-8")
     viewer_css = (viewer_dir / "viewer.css").read_text(encoding="utf-8")
     viewer_js = (viewer_dir / "viewer.js").read_text(encoding="utf-8")
-    three_js_bytes = (viewer_dir / "vendor" / "three.module.js").read_bytes()
+    three_js_bytes = (viewer_dir / "vendor" / "three.module.min.js").read_bytes()
     orbit_js_bytes = (viewer_dir / "vendor" / "addons" / "controls" / "OrbitControls.js").read_bytes()
 
     three_b64 = base64.b64encode(three_js_bytes).decode("ascii")
@@ -713,7 +713,7 @@ def export_standalone_fpv_html(project: Project, layout: SetLayout) -> Path:
         f"<style>\n{viewer_css}\n</style>",
     )
     standalone = standalone.replace(
-        '{ "imports": { "three": "/static/vendor/three.module.js", "three/addons/": "/static/vendor/addons/" } }',
+        '{ "imports": { "three": "/static/vendor/three.module.min.js", "three/addons/": "/static/vendor/addons/" } }',
         importmap_json,
     )
     standalone = standalone.replace(

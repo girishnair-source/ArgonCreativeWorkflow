@@ -280,6 +280,10 @@ def build_parser() -> argparse.ArgumentParser:
     sh.add_argument("env")
     eb = s3.add_parser("export-blender", help="export Wavefront .obj/.mtl, .gltf, and open_in_blender.py for a 3D set")
     eb.add_argument("env")
+    ob = s3.add_parser("open-blender", help="open the 3D set in Blender so the Director can see the world "
+                                            "(GUI by default; --render = headless .blend + camera blockout PNGs)")
+    ob.add_argument("env")
+    ob.add_argument("--render", action="store_true", help="headless: save .blend and render every saved camera")
 
     c = add("draft-finalize", "run Two-Tier 360p Draft -> 3x3 Contact Sheet + Critic QA -> 4K Finalize (Omni 1.5 Flash)")
     c.add_argument("scene")
@@ -510,13 +514,16 @@ def _set3d(s: Any, a: argparse.Namespace) -> str:
         manual = _load_manual(a.manual_file)
         layout = designer.build_set(proj, a.env.upper(), mode="manual" if manual is not None else "llm",
                                     manual_output=manual, steer=a.steer, fake=s.fake, keep_cameras=not a.fresh)
+        export_note = ""
         try:
             export_blender_scene(proj, layout.environment_id)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001 - the set itself is built; say why the Blender export is missing
+            export_note = f"\n(Blender export skipped: {exc})"
         return (f"3D set for {layout.environment_id} ready (v{layout.version}): {len(layout.primitives)} blocks, "
                 f"{len(layout.lights)} lights, {len(layout.mannequins)} mannequins.\n"
-                f"Open it with: set3d serve {layout.environment_id}\n{layout.notes}".rstrip())
+                f"See it: `set3d open-blender {layout.environment_id}` (Blender GUI) or "
+                f"`set3d serve {layout.environment_id}` (browser FPV, no Blender needed).\n"
+                f"{layout.notes}{export_note}".rstrip())
     if a.action == "serve":
         from .set3d.server import serve
 
@@ -539,6 +546,18 @@ def _set3d(s: Any, a: argparse.Namespace) -> str:
         return lay.summary()
     if a.action == "show":
         return store.load_set(proj, a.env.upper()).model_dump_json(indent=2)
+    if a.action == "open-blender":
+        from .set3d.blender_export import open_in_blender
+
+        res = open_in_blender(proj, a.env.upper(), render=a.render)
+        lines = [f"Blender ({res['blender_bin']}) {'rendered' if a.render else 'opened'} the 3D set for {res['environment_id']}:",
+                 f"  - .blend: {proj.abs(res['blend_file'])}" + ("" if res["blend_exists"] else " (written when Blender finishes building)"),
+                 f"  - command: {res['command']}"]
+        if res["rendered"]:
+            lines.append("  - camera blockouts: " + ", ".join(res["rendered"]))
+        elif a.render:
+            lines.append("  - no saved cameras yet: frame some in `set3d serve` (Render reference) and re-run --render")
+        return "\n".join(lines)
     if a.action == "export-blender":
         res = export_blender_scene(proj, a.env.upper())
         return (f"Blender & 3D assets exported for {res['environment_id']}:\n"

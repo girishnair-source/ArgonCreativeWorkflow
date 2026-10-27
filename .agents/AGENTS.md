@@ -30,14 +30,15 @@ bash setup_studio_env.sh
        - `hybrid` (*Smart Hybrid Control* — stops at `G1`, `G3`, `G5`, `G6`; auto-passes `G2`/`G4` when reusing Global Bible assets/voices)
        - `autopilot` (*Seamless Autopilot* — approve `G1` once, runs `G2`–`G5` autonomously with QA self-healing to `G6` DaVinci Resolve cut)
     2. **Content Format (`ContentFormat`)**: `microdrama_9_16` (`9:16`), `episode_16_9` (`16:9`), `feature_film` (`16:9`/`2.39:1`), or `marketing_spot` (multi-shot commercial escalation).
-    3. **3D Blocking Engine**: Zero-Blender 60 FPS Browser 3D FPV (`<ENV_ID>_FPV_Director.html` / `set3d serve`), Native Blender 5.2 (`.blend`), or Both.
+    3. **3D Blocking Set (optional, default No)**: No 3D set / Browser 3D FPV (`set3d serve`) / Native Blender 5.2 (`.blend`), or Both.
   - Persist the selection immediately via `.venv/bin/python -m agy_studio --project <PROJECT_ID> set-mode <director|hybrid|autopilot> --format <FORMAT>`.
 - **Gate G0 — Script Intake**: `.venv/bin/python -m agy_studio ingest <script.fountain>`
 - **Gate G1 — Production Bible, StyleLock, Voice Profiles & Schedule**: `.venv/bin/python -m agy_studio g1` → `.venv/bin/python -m agy_studio gate G1 "approve all"`
 - **Gate G2 — Visual Design (Character/Prop Packs, Environment Geometry & `set3d` Virtual Sets)**:
   - Check or generate design candidates: `.venv/bin/python -m agy_studio design SC01 status` / `generate`
-  - Build & serve 3D sets:
+  - Build & show 3D sets (ONLY if the Director opted in — never automatic):
     - `.venv/bin/python -m agy_studio set3d build ENV_RISHIS_HOUSE`
+    - `.venv/bin/python -m agy_studio set3d open-blender ENV_RISHIS_HOUSE [--render]`
     - `.venv/bin/python -m agy_studio set3d serve ENV_RISHIS_HOUSE --host 127.0.0.1 --port 8765`
     - `.venv/bin/python -m agy_studio set3d stylize ENV_RISHIS_HOUSE WIDE_MASTER`
   - Approve Gate G2: `.venv/bin/python -m agy_studio gate G2 SC01 "approve all"`

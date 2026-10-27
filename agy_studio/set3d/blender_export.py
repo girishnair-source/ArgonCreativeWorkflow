@@ -32,6 +32,85 @@ from .store import load_set
 AGENT = "agy.set3d.blender"
 
 
+class BlenderNotFoundError(RuntimeError):
+    """Blender is not installed where we can find it (message carries install/override instructions)."""
+
+
+BLENDER_CANDIDATES: tuple[str, ...] = (
+    "/Applications/Blender.app/Contents/MacOS/Blender",
+    "~/Applications/Blender.app/Contents/MacOS/Blender",
+    "/usr/bin/blender",
+    "/usr/local/bin/blender",
+    "/opt/homebrew/bin/blender",
+    "/snap/bin/blender",
+    "C:/Program Files/Blender Foundation/Blender/blender.exe",
+)
+
+
+def find_blender(*, required: bool = True) -> str | None:
+    """Absolute path of the Blender executable (``BLENDER_BIN`` env -> PATH -> standard app locations)."""
+    import os  # noqa: PLC0415
+
+    explicit = os.environ.get("BLENDER_BIN")
+    cands = [explicit] if explicit else []
+    cands += [shutil.which("blender"), shutil.which("Blender")]
+    cands += [str(Path(os.path.expanduser(c))) for c in BLENDER_CANDIDATES]
+    for c in cands:
+        if c and Path(c).is_file():
+            return str(Path(c))
+    if not required:
+        return None
+    raise BlenderNotFoundError(
+        "Blender was not found, so the 3D set cannot be opened or rendered.\n"
+        "  macOS : brew install --cask blender   (or https://www.blender.org/download/)\n"
+        "  then  : re-run `set3d open-blender <ENV_ID>`\n"
+        "If Blender lives somewhere else, export BLENDER_BIN=/full/path/to/blender.\n"
+        "The browser viewer needs no Blender at all: `set3d serve <ENV_ID>`.")
+
+
+def open_in_blender(project: Project, env_id: str, *, render: bool = False, background: bool | None = None,
+                    timeout_s: float = 900.0) -> dict[str, Any]:
+    """Build the set in Blender so the Director can SEE the 3D world — on demand only, never from a gate.
+
+    * ``render=False`` (default): launches the Blender GUI with ``open_in_blender.py`` (non-blocking); the scene is
+      built live, viewports switch to Material Preview / camera view, and the ``.blend`` is saved.
+    * ``render=True``: runs Blender headless (``-b``) with ``--save-and-render``: saves the ``.blend``, renders the
+      wide-master preview and one ``<CAM>_3d_clean.png`` per saved camera into ``cam_renders_9_16/`` (blocking).
+
+    Raises :class:`BlenderNotFoundError` when Blender is missing and ``RuntimeError`` with Blender's stderr when a
+    headless render fails — nothing is faked.
+    """
+    import subprocess  # noqa: PLC0415
+
+    res = export_blender_scene(project, env_id)
+    blender = find_blender()
+    script = project.abs(res["blender_script"])
+    if background is None:
+        background = render
+    cmd = [blender]
+    if background:
+        cmd.append("-b")
+    cmd += ["--python", str(script)]
+    if render:
+        cmd += ["--", "--save-and-render"]
+    out: dict[str, Any] = {**res, "blender_bin": blender, "command": " ".join(cmd), "rendered": [], "launched_gui": False}
+    if background:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s, check=False)
+        if proc.returncode != 0:
+            tail = "\n".join((proc.stderr or proc.stdout or "").strip().splitlines()[-15:])
+            raise RuntimeError(f"Blender exited with {proc.returncode} while building {env_id}:\n{tail}")
+        out["log"] = (proc.stdout or "")[-4000:]
+    else:
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)  # noqa: S603
+        out["launched_gui"] = True
+    blend = project.abs(res["blend_file"])
+    out["blend_exists"] = blend.is_file()
+    cam_dir = blend.parent / "cam_renders_9_16"
+    if cam_dir.is_dir():
+        out["rendered"] = sorted(project.rel(p) for p in cam_dir.glob("*_3d_clean.png"))
+    return out
+
+
 def _hex_to_rgb01(hex_str: str) -> tuple[float, float, float]:
     h = hex_str.lstrip("#")
     if len(h) != 6:
@@ -217,9 +296,17 @@ def export_blender_scene(project: Project, env_id: str) -> dict[str, str]:
     # Write executable Blender Python script (`blender --python open_in_blender.py`)
     blend_path = out_dir / f"{layout.environment_id}.blend"
     render_preview_path = out_dir / f"{layout.environment_id}_WIDE_MASTER_blender.png"
-    wall_photo_path = project.abs("library/environments/ENV_RISHIS_HOUSE/v2/wall_family_photo.png")
-    mother_ref_path = project.abs("library/packs/CHAR_MOTHER_STATE_DEFAULT/v2/front.png")
-    room_ref_path = project.abs("library/environments/ENV_RISHIS_HOUSE/v2/dining_room_master.jpg")
+    # Optional texture / reference plates: the environment's own locked geometry still when it exists (project
+    # specific, never another production's files); the generated script checks os.path.isfile before loading.
+    env_plate = ""
+    try:
+        env_rec = project.load_environment(layout.environment_id)
+        env_plate = str(project.abs(env_rec.geometry_still)) if getattr(env_rec, "geometry_still", None) else ""
+    except Exception:  # noqa: BLE001 - a set can exist before the Bible environment is locked
+        env_plate = ""
+    wall_photo_path = ""
+    mother_ref_path = ""
+    room_ref_path = env_plate
 
     layout_json = layout.model_dump_json()
     blender_py = f'''"""Auto-generated Blender 4.x/5.x 3D Set & Articulated Cast Builder for {layout.environment_id}.

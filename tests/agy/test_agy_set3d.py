@@ -200,16 +200,31 @@ def test_cli_set3d(demo_project, productions_dir):
         cli_run(["--workspace", ws, "--project", "DEMO_S01", "--fake", "set3d", "serve", "ENV_STAIRWELL"])
 
 
-def test_g2_auto_builds_set3d_and_injects_into_scene_context(unlocked_project):
+@pytest.mark.parametrize("mode", ["director", "hybrid", "autopilot"])
+def test_g2_never_auto_builds_set3d_in_any_mode(unlocked_project, mode):
+    """3D world building is opt-in: locking an environment at G2 must not spend an LLM pass + Blender export."""
+    from agy_studio.orchestrator import Studio
+
+    s = Studio(unlocked_project, fake=True)
+    s.set_control_mode(mode)
+    env = unlocked_project.load_environment(ENV)
+    msg = s._promote_design("SC01", ENV, {"geometry": env.geometry_still}, "D000001")
+    assert not store.has_set(unlocked_project, ENV)
+    assert f"set3d build {ENV}" in msg and f"set3d open-blender {ENV}" in msg
+    assert not unlocked_project.abs(f"bible/sets/{ENV}").exists()
+
+
+def test_user_built_set3d_is_injected_into_scene_context(unlocked_project):
+    """When the Director DOES ask for the set, it is exposed to the agents exactly as before."""
     from agy_studio.agents.runner import scene_context
     from agy_studio.orchestrator import Studio
     from agy_studio.working_set import build_working_set
 
     s = Studio(unlocked_project, fake=True)
-    # Promoting an environment at G2 automatically builds its 3D set and exposes it in scene_context
+    designer.build_set(unlocked_project, ENV, fake=True)  # == `set3d build ENV_TERRACE`
     env = unlocked_project.load_environment(ENV)
     msg = s._promote_design("SC01", ENV, {"geometry": env.geometry_still}, "D000001")
-    assert "3D set built" in msg
+    assert f"set3d open-blender {ENV}" in msg
     assert store.has_set(unlocked_project, ENV)
     ws = build_working_set(unlocked_project, "SC01")
     ctx = scene_context(unlocked_project, ws)
@@ -217,3 +232,81 @@ def test_g2_auto_builds_set3d_and_injects_into_scene_context(unlocked_project):
     assert "set3d_summary" in env_rec
     assert "cam:WIDE" in env_rec["set3d_summary"]["saved_cameras"]
     assert env_rec["set3d_summary"]["mannequins"]
+
+
+# ---------------------------------------------------------------------------------------------
+# Blender launcher: the Director can actually SEE the world (on demand), and it fails fast without Blender
+# ---------------------------------------------------------------------------------------------
+def _fake_blender(tmp_path: Path, *, fail: bool = False) -> Path:
+    """Stand-in Blender: records its argv, and when run with --save-and-render writes the files the real one would."""
+    import stat
+
+    exe = tmp_path / "bin" / "blender"
+    exe.parent.mkdir(parents=True, exist_ok=True)
+    exe.write_text(
+        "#!/bin/sh\n"
+        "echo \"$@\" > \"$(dirname \"$0\")/argv.txt\"\n"
+        + ("echo 'Error: GPU not found' 1>&2; exit 3\n" if fail else "")
+        + "for a in \"$@\"; do case \"$a\" in *.py) script=\"$a\";; esac; done\n"
+        "dir=$(dirname \"$script\")\n"
+        "case \"$*\" in *--save-and-render*)\n"
+        "  touch \"$dir\"/*.blend 2>/dev/null || : ; for b in \"$dir\"/*.py; do :; done\n"
+        "  env=$(basename \"$dir\"); : ; mkdir -p \"$dir/cam_renders_9_16\"; printf x > \"$dir/cam_renders_9_16/WIDE_3d_clean.png\"\n"
+        "  touch \"$dir/ENV_TERRACE.blend\"\n"
+        "  ;; esac\n"
+        "exit 0\n"
+    )
+    exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
+    return exe
+
+
+def test_open_blender_render_produces_blend_and_camera_blockouts(demo_project, tmp_path, monkeypatch):
+    from agy_studio.set3d.blender_export import open_in_blender
+
+    designer.build_set(demo_project, ENV, fake=True)
+    exe = _fake_blender(tmp_path)
+    monkeypatch.setenv("BLENDER_BIN", str(exe))
+    res = open_in_blender(demo_project, ENV, render=True)
+    argv = (tmp_path / "bin" / "argv.txt").read_text()
+    assert "-b" in argv and "--python" in argv and "--save-and-render" in argv
+    assert res["blend_exists"] and res["rendered"] == [f"bible/sets/{ENV}/blender/cam_renders_9_16/WIDE_3d_clean.png"]
+    assert res["launched_gui"] is False
+
+
+def test_open_blender_gui_launches_without_blocking(demo_project, tmp_path, monkeypatch):
+    from agy_studio.set3d.blender_export import open_in_blender
+
+    designer.build_set(demo_project, ENV, fake=True)
+    monkeypatch.setenv("BLENDER_BIN", str(_fake_blender(tmp_path)))
+    res = open_in_blender(demo_project, ENV)
+    assert res["launched_gui"] is True and "-b" not in res["command"].split()
+    assert demo_project.abs(res["blender_script"]).is_file()
+
+
+def test_open_blender_fails_fast_when_blender_missing(demo_project, tmp_path, monkeypatch):
+    from agy_studio.set3d import blender_export as be
+
+    designer.build_set(demo_project, ENV, fake=True)
+    monkeypatch.setenv("BLENDER_BIN", str(tmp_path / "nope"))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.setattr(be, "BLENDER_CANDIDATES", ())
+    with pytest.raises(be.BlenderNotFoundError, match="brew install --cask blender"):
+        be.open_in_blender(demo_project, ENV)
+
+
+def test_open_blender_render_error_is_reported_not_hidden(demo_project, tmp_path, monkeypatch):
+    from agy_studio.set3d.blender_export import open_in_blender
+
+    designer.build_set(demo_project, ENV, fake=True)
+    monkeypatch.setenv("BLENDER_BIN", str(_fake_blender(tmp_path, fail=True)))
+    with pytest.raises(RuntimeError, match="GPU not found"):
+        open_in_blender(demo_project, ENV, render=True)
+
+
+def test_generated_blender_script_has_no_foreign_production_paths(demo_project):
+    from agy_studio.set3d.blender_export import export_blender_scene
+
+    designer.build_set(demo_project, ENV, fake=True)
+    res = export_blender_scene(demo_project, ENV)
+    script = demo_project.abs(res["blender_script"]).read_text()
+    assert "ENV_RISHIS_HOUSE" not in script and "CHAR_MOTHER_STATE_DEFAULT" not in script

@@ -974,35 +974,25 @@ class Studio:
         return f"{item}: geometry + angles locked in library/{set_note}"
 
     def _ensure_set3d(self, env_id: str) -> str:
-        """Automatically build the grey-box 3D set (set3d) and Blender export whenever an environment is locked at G2.
+        """3D world building is OPT-IN in every mode — it is never started by a gate.
 
-        Skipped in autopilot mode: the 3D set exists for a human to frame cameras in, and it costs an LLM pass plus a
-        Blender export per environment. ``set3d build <ENV_ID>`` still works on demand.
+        A grey-box set costs an LLM design pass, a Blender export and (if rendered) a Cycles render per camera, and it
+        only pays off when a human wants to walk the room and frame cameras. Locking an environment at G2 therefore
+        just reports how to build it on demand (``set3d build <ENV>`` then ``set3d open-blender <ENV>``); when a set
+        already exists its Blender export is refreshed so the .blend stays in sync with the locked geometry.
         """
-        from .set3d import designer, store
+        from .set3d import store
         from .set3d.blender_export import export_blender_scene
-
-        if self.is_autopilot() and not store.has_set(self.project, env_id):
-            return f" (3D set skipped in autopilot mode — `set3d build {env_id}` on demand)"
 
         if store.has_set(self.project, env_id):
             try:
                 export_blender_scene(self.project, env_id)
             except Exception:  # noqa: BLE001
                 pass
-            return f" (3D set already at bible/sets/{env_id}/set.json)"
-        if self.agent_mode == "manual" and not self.fake:
-            return f" (run `set3d build {env_id}` to author the 3D set)"
-        try:
-            lay = designer.build_set(self.project, env_id, mode="llm", fake=self.fake)
-            try:
-                export_blender_scene(self.project, env_id)
-            except Exception:  # noqa: BLE001
-                pass
-            return (f" + 3D set built (v{lay.version}, {len(lay.primitives)} blocks, "
-                    f"{len(lay.mannequins)} mannequins — `set3d serve {env_id}` to frame cameras)")
-        except Exception as exc:  # noqa: BLE001
-            return f" (3D set auto-build skipped: {exc})"
+            return (f" (3D set at bible/sets/{env_id}/set.json — `set3d open-blender {env_id}` to view it in Blender, "
+                    f"`set3d serve {env_id}` for the browser FPV)")
+        return (f" (no 3D set — optional: `set3d build {env_id}` then `set3d open-blender {env_id}` if you want to "
+                f"walk the room and frame cameras)")
 
     def _apply_g2(self, sid: str | None, response: Any, decisions: list[Any]) -> list[str]:
         from .bible_hierarchy import build_global_context_bible, build_scene_bible

@@ -40,9 +40,9 @@ You operate a closed-loop **Spec-Driven Studio Pipeline** supporting **2D/3D Car
 4. If any character (`CHAR_*`) or location (`LOC_*`) lacks a reference sheet on disk, **STOP and ask the user** via `ask_question`:
    - Offer to import their existing character/location sheet via `.venv/bin/python casting_agent.py --import-sheet <ID> <character|location> <PATH>`, OR
    - Only generate the missing sheets that the user explicitly confirms using **Nano Banana Pro (`gemini-3-pro-image`)**.
-5. **Automatic 3D Set Modelling (`set3d`)**:
-   - As soon as a location's geometry still is locked at **G2**, the orchestrator automatically invokes `set_designer` (`set3d build <ENV_ID>`) to generate a to-scale grey-box 3D layout (`bible/sets/<ENV_ID>/set.json`) with walls, furniture, physical light sources, and character mannequins.
-   - Launch `.venv/bin/python -m agy_studio set3d serve <ENV_ID>` so the editor can walk/orbit the 3D room in the browser, set exact lens focal lengths (`12–135 mm`), save named cameras (`SH01`, `SH03`, etc.), and click **Render reference** (saves `blockout.png` + `depth.png` + `camera.json`).
+5. **Optional 3D Set Modelling (`set3d`) — only when the Director asks**:
+   - 3D world building is never automatic (not at G2, not in any mode): it costs an LLM design pass plus a Blender export/render per location. If the Director opted in at intake or asks later, run `.venv/bin/python -m agy_studio set3d build <ENV_ID>` to generate the to-scale grey-box layout (`bible/sets/<ENV_ID>/set.json`) with walls, furniture, light sources and character mannequins.
+   - Show it: `.venv/bin/python -m agy_studio set3d open-blender <ENV_ID>` opens Blender with the set built live and saves `<ENV_ID>.blend` (`--render` = headless `.blend` + `cam_renders_9_16/<CAM>_3d_clean.png`); `.venv/bin/python -m agy_studio set3d serve <ENV_ID>` lets the editor walk/orbit the room in the browser, set focal lengths (`12–135 mm`), save named cameras and click **Render reference**. Missing Blender stops with an install hint — never fake a render.
    - Run `.venv/bin/python -m agy_studio set3d stylize <ENV_ID> <CAM>` so Nano Banana Pro repaints the 3D blockout using the locked geometry still as reference, promoting `cam_<CAM>.png` into `library/environments/` and registering `environment_angle: "cam:<CAM>"` for the Director, Cinematographer, and Shot Decomposer.
 
 ### Gate 2: Human Pacing, Voice Lock & Single-Speaker Isolation (`dialogue-agent`)

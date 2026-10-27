@@ -38,7 +38,7 @@ Follow these rules strictly on every turn:
 
 7. **Autopilot Mode Contract (`control_mode=autopilot`) — Script → Editor with ONE Human Click**:
    - The Director approves **G1 only**. From there `tick` / `advance` runs `G2 → G3 → G4 → G5 → G6` with no questions and no waiting gates: missing reference images are generated immediately (no "do you have reference sheets?" prompt), G2/G3/G4 packets are opened for the audit trail and answered by AGY (`source=autopilot`), G5 picks the QA-recommended take per clip and sets first voice anchors itself, and the scene cut is pushed into DaVinci Resolve at `G6`.
-   - **The 3D set (`set3d` + Blender export) is skipped in autopilot** — there is no human to frame cameras in it. `set3d build <ENV_ID>` remains available on demand.
+   - **No 3D set is built in autopilot** (as in every mode, 3D is opt-in only — `set3d build <ENV_ID>` / `set3d open-blender <ENV_ID>` on request).
    - Do NOT call `ask_question` between G1 and G6 in autopilot, and do NOT stop to present `g2_visual_review.md` / `g3_storyboard_review.md` for approval — present the finished `G6` timeline and the review folders (`scenes/<SID>/review/`) afterwards instead.
    - The fail-fast credential contract (rule 6) still applies: the only thing that may stop an autopilot run is an `AuthError`, which must be shown verbatim and fixed — never worked around.
 

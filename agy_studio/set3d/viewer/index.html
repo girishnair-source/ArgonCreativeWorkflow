@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AGY Studio — 3D FPV Set &amp; Character Director (Zero-Blender 60 FPS GLSL)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/viewer.css">
+<script type="importmap">
+{ "imports": { "three": "/static/vendor/three.module.js", "three/addons/": "/static/vendor/addons/" } }
+</script>
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <header>
+      <div class="brand-row">
+        <h1>AGY · 3D FPV Director</h1>
+        <span id="fpsBadge" class="fps-badge">60 FPS · GLSL</span>
+      </div>
+      <select id="setSelect" title="Environment"></select>
+    </header>
+
+    <section>
+      <h2>Camera &amp; Lens</h2>
+      <div class="row">
+        <label for="focal">Focal</label>
+        <input id="focal" type="range" min="14" max="135" step="1" value="35">
+        <output id="focalOut">35 mm</output>
+      </div>
+      <div class="row lens-presets">
+        <button type="button" data-lens="18">18mm</button>
+        <button type="button" data-lens="24">24mm</button>
+        <button type="button" data-lens="35" class="active">35mm</button>
+        <button type="button" data-lens="50">50mm</button>
+        <button type="button" data-lens="85">85mm</button>
+      </div>
+      <div class="row">
+        <label for="aspect">Aspect</label>
+        <select id="aspect">
+          <option value="16:9" selected>16:9 Cinema / Episode</option>
+          <option value="9:16">9:16 Vertical Microdrama</option>
+          <option value="1:1">1:1 Square</option>
+          <option value="4:3">4:3 Academy</option>
+          <option value="2.39:1">2.39:1 Anamorphic</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="camH">Height</label>
+        <input id="camH" type="number" step="0.05" min="0.1" max="15" value="1.32">
+        <span class="unit">m</span>
+        <label for="roll" style="margin-left:8px;">Roll</label>
+        <input id="roll" type="range" min="-30" max="30" step="0.5" value="0">
+        <output id="rollOut">0°</output>
+      </div>
+      <div class="row btns mode-toggle">
+        <button type="button" id="btnOrbitMode" class="active">Orbit Mode</button>
+        <button type="button" id="btnFlyMode">FPV Walk / Fly (WASD)</button>
+      </div>
+      <input id="flyMode" type="checkbox" hidden>
+      <div id="camInfo" class="info">—</div>
+    </section>
+
+    <section>
+      <h2>Shot Cameras (Click to Cut)</h2>
+      <div class="row">
+        <input id="camName" placeholder="Name, e.g. OTS_RIA_TO_FATHER_RISHI" maxlength="40">
+      </div>
+      <div class="row">
+        <input id="camNote" placeholder="Director note (over Ria's left shoulder…)">
+      </div>
+      <div class="row btns">
+        <button type="button" id="saveCam">Save Camera</button>
+        <button type="button" id="renderCam" class="primary">Render to Studio</button>
+      </div>
+      <div class="row btns">
+        <button type="button" id="downloadCleanPng" class="accent">Download Clean 3D Snapshot (PNG)</button>
+      </div>
+      <ul id="camList"></ul>
+    </section>
+
+    <section>
+      <h2>3D Cast &amp; Procedural Shaders</h2>
+      <div class="row wrap-checks">
+        <label class="chk"><input id="showMq" type="checkbox" checked> 3D Characters</label>
+        <label class="chk"><input id="showLabels" type="checkbox" checked> Name Labels</label>
+        <label class="chk"><input id="idleAnim" type="checkbox" checked> 60fps Breathing</label>
+        <label class="chk"><input id="showGodRays" type="checkbox" checked> Sunlight Shafts</label>
+        <label class="chk"><input id="showGrid" type="checkbox"> Floor Grid</label>
+        <label class="chk"><input id="showAxis" type="checkbox"> 180° Axis Line</label>
+      </div>
+      <div class="row">
+        <label class="chk"><input id="showStill" type="checkbox"> Overlay Master Reference Still</label>
+      </div>
+      <div id="setNotes" class="info"></div>
+      <details>
+        <summary>Adjust Selected Prop / Character</summary>
+        <div id="editBox" class="edit">
+          <div class="row"><label>Selected</label><span id="selId">none</span></div>
+          <div class="row">
+            <label>Pos (X/Y/Z)</label>
+            <input class="v" id="px" type="number" step="0.05">
+            <input class="v" id="py" type="number" step="0.05">
+            <input class="v" id="pz" type="number" step="0.05">
+          </div>
+          <div class="row">
+            <label>Size (W/H/D)</label>
+            <input class="v" id="sx" type="number" step="0.05" min="0.01">
+            <input class="v" id="sy" type="number" step="0.05" min="0.01">
+            <input class="v" id="sz" type="number" step="0.05" min="0.01">
+          </div>
+          <div class="row"><label>Facing / Rot Y°</label><input id="ry" type="number" step="5"></div>
+          <div class="row btns">
+            <button type="button" id="applyEdit">Apply</button>
+            <button type="button" id="dupBlock">Duplicate</button>
+            <button type="button" id="delBlock" class="danger">Delete</button>
+          </div>
+          <div class="row btns"><button type="button" id="saveSet">Save Set Layout</button></div>
+        </div>
+      </details>
+    </section>
+    <footer id="status">Loading procedural 3D set…</footer>
+  </aside>
+  <main id="stage">
+    <canvas id="c"></canvas>
+    <div id="frame">
+      <div id="frameInner">
+        <div class="rule-thirds-h"></div>
+        <div class="rule-thirds-v"></div>
+        <span id="frameLabel"></span>
+      </div>
+    </div>
+    <div id="frustumHud" class="frustum-hud">View-Space 3D Frustum: computing…</div>
+    <img id="stillOverlay" alt="">
+    <div id="hint">
+      <b>Orbit:</b> Left-drag · <b>Pan:</b> Right-drag · <b>Dolly:</b> Scroll · <b>FPV Walk/Fly:</b> Press <b>F</b> then <b>WASD + Q/E</b> + Mouse drag · <b>Click character/prop:</b> Select &amp; move · <b>Space:</b> Save camera
+    </div>
+  </main>
+</div>
+<script type="module" src="/static/viewer.js"></script>
+</body>
+</html>

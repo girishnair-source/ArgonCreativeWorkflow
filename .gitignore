@@ -1,0 +1,23 @@
+# Python & Virtual Environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# macOS & IDE
+.DS_Store
+*.swp
+*.lock
+
+# Local Production Media & Heavy Renders (keepproductions/.gitkeep)
+productions/*
+!productions/.gitkeep
+generated_assets/
+*.zip

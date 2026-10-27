@@ -1,0 +1,191 @@
+# AGY Film Studio — Model Capability Registry (BUILD_SPEC_v3 §5).
+# Hot-reloadable: agents read constraints from here and never hardcode them. Changing max_duration_s or
+# supports.max_speakers_per_clip changes shot decomposition with no code change (acceptance criterion 10).
+# Costs marked cost_is_estimate: true are placeholders until confirmed against billing — update in chat.
+version: 1
+models:
+  - id: omni
+    kind: video_av
+    enabled: true
+    provider_model: gemini-omni-1.5-flash
+    provider_fallbacks: [gemini-omni-1.1-flash-preview, gemini-omni-1.1-flash, racoon-cookies]
+    location: global
+    adapter: agy_studio.adapters.omni
+    min_duration_s: 3
+    max_duration_s: 10
+    allowed_durations_s: [3, 4, 5, 6, 7, 8, 9, 10]
+    aspect_ratios: ["9:16", "16:9"]
+    resolutions: ["360p", "720p", "1080p", "4k"]
+    draft_resolution: "360p"
+    finalize_resolution: "4k"
+    reuse_prompt_on_finalize: true
+    native_voice_model: "gemini-3.8-tts"
+    supports:
+      reference_to_video: true
+      first_frame: true
+      last_frame: true
+      multi_subject_refs: true
+      negative_prompt: false        # negatives are serialised into the prompt text
+      native_audio: true
+      dialogue_in_prompt: true
+      voice_reference_audio: false  # reference videos are muted before upload (speech-edit rejections)
+      max_speakers_per_clip: 2
+      max_reference_images: 9       # + 1 first-frame image = Omni's 10-image limit
+      max_reference_videos: 3
+      extend_video: true
+      refs_with_first_frame: true
+      two_tier_draft_finalize: true
+      reuse_prompt_on_finalize: true
+    prompt_style: prose
+    audio_prompt_syntax:
+      line: '{speaker} ({voice}) speaks {language}, {delivery}: "{text}"{phonetic}'
+      off_screen: 'Off-screen, {speaker} ({voice}) is heard {delivery}: "{text}"{phonetic}. Every on-screen mouth stays closed.'
+      listeners_closed: '{names} keep their mouths fully closed and do not speak.'
+      ambience: 'Ambient sound: {ambience}.'
+      sfx: 'Sound effects: {sfx}.'
+      music_none: 'No background music, no score, no narration, no subtitles.'
+    cost_per_s: 0.20
+    cost_is_estimate: true
+    avg_latency_s: 240
+    known_failures:
+      - voice drift across clips
+      - spontaneous music
+      - subtitles burned in
+      - speech edits rejected when reference videos carry audio (refs are muted)
+      - interaction fetch 401 after long polls (token refresh)
+
+  - id: veo
+    kind: video_av
+    enabled: true
+    provider_model: veo-3.1-generate-001
+    provider_fallbacks: [veo-3.1-fast-generate-001]
+    location: us-central1
+    adapter: agy_studio.adapters.veo
+    min_duration_s: 4
+    max_duration_s: 8
+    allowed_durations_s: [4, 6, 8]
+    aspect_ratios: ["9:16", "16:9"]
+    resolutions: ["720p", "1080p"]
+    supports:
+      reference_to_video: true
+      first_frame: true
+      last_frame: true
+      multi_subject_refs: true
+      negative_prompt: true
+      native_audio: true
+      dialogue_in_prompt: true
+      voice_reference_audio: false
+      max_speakers_per_clip: 2
+      max_reference_images: 3
+      max_reference_videos: 0
+      extend_video: false
+      refs_with_first_frame: false  # first-frame image and asset reference images cannot be combined
+    prompt_style: prose
+    audio_prompt_syntax:
+      line: '{speaker} ({voice}) says in {language}, {delivery}: "{text}"{phonetic}'
+      off_screen: 'Off-screen voice of {speaker} ({voice}), {delivery}: "{text}"{phonetic}. No on-screen character speaks.'
+      listeners_closed: '{names} keep their lips closed and stay silent.'
+      ambience: 'Ambient noise: {ambience}.'
+      sfx: 'SFX: {sfx}.'
+      music_none: 'No music. No narration. No subtitles.'
+    cost_per_s: 0.40
+    cost_is_estimate: true
+    avg_latency_s: 150
+    known_failures:
+      - voice drift across clips
+      - spontaneous music
+      - subtitles burned in
+      - RAI filtering on physical-action prompts
+
+  - id: existing_music_gen
+    kind: music
+    enabled: true
+    provider_model: lyria-002
+    adapter: agy_studio.adapters.music
+    location: us-central1
+    max_duration_s: 32.8
+    supports: {}
+    prompt_style: prose
+    cost_per_call: 0.06
+    cost_is_estimate: true
+    avg_latency_s: 30
+    known_failures: [fixed-length 32.8 s clips (looped/trimmed in assembly)]
+
+  - id: existing_sfx_gen
+    kind: sfx
+    enabled: true
+    provider_model: gemini-omni-1.1-flash-preview
+    adapter: agy_studio.adapters.sfx
+    location: global
+    max_duration_s: 10
+    supports: {native_audio: true}
+    prompt_style: prose
+    cost_per_s: 0.05
+    cost_is_estimate: true
+    avg_latency_s: 120
+    known_failures: [supplement only - hard effects native audio misses]
+
+  - id: nano_banana_pro
+    kind: image
+    enabled: true
+    provider_model: gemini-3-pro-image-preview
+    provider_fallbacks: [gemini-2.5-flash-image]
+    adapter: agy_studio.adapters.image
+    location: global
+    supports: {multi_subject_refs: true, max_reference_images: 14}
+    prompt_style: prose
+    cost_per_call: 0.13
+    cost_is_estimate: true
+    avg_latency_s: 25
+    known_failures: [text rendered into sheets, lighting bleed from references]
+
+  - id: gemini_asr
+    kind: transcribe
+    enabled: true
+    provider_model: gemini-2.5-flash
+    adapter: agy_studio.adapters.asr
+    location: global
+    supports: {}
+    prompt_style: structured
+    cost_per_call: 0.002
+    cost_is_estimate: true
+    avg_latency_s: 8
+    known_failures: []
+
+  - id: speaker_sim_local
+    kind: speaker_similarity
+    enabled: true
+    provider_model: local-logmel-embedding-v1
+    adapter: agy_studio.adapters.speaker_sim
+    supports: {}
+    prompt_style: structured
+    cost_per_call: 0.0
+    avg_latency_s: 1
+    known_failures: [coarse timbre embedding - treat as a drift alarm, not an identity proof]
+
+  - id: gemini_vision_judge
+    kind: vision_judge
+    enabled: true
+    provider_model: gemini-2.5-flash
+    adapter: agy_studio.adapters.vision_judge
+    location: global
+    supports: {}
+    prompt_style: structured
+    cost_per_call: 0.003
+    cost_is_estimate: true
+    avg_latency_s: 10
+    known_failures: []
+
+  - id: agent_llm
+    kind: llm
+    enabled: true
+    provider_model: gemini-2.5-pro
+    provider_fallbacks: [gemini-2.5-flash]
+    adapter: agy_studio.adapters.llm
+    location: global
+    supports: {}
+    prompt_style: structured
+    cost_per_call: 0.02
+    cost_is_estimate: true
+    avg_latency_s: 30
+    known_failures: []

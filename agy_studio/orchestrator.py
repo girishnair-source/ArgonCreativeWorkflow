@@ -211,6 +211,22 @@ class Studio:
 
         return fake_mode()
 
+    def is_autopilot(self) -> bool:
+        """``control_mode == autopilot``: G1 is approved once by the human, G2-G5 are answered by AGY itself."""
+        return str(getattr(self.settings, "control_mode", "director") or "director").lower() == "autopilot"
+
+    def _autopilot_approve(self, gate: GateId, sid: str, rep: StepReport, *, text: str = "approve all") -> bool:
+        """Autopilot: the gate packet + review artifacts are still written (audit trail), then AGY answers it.
+
+        Returns True so :meth:`advance` keeps stepping; the nested ``respond`` already moved the scene forward and
+        its report text is folded into ``rep``.
+        """
+        rep.lines.append(f"{sid}: {gate.value} auto-approved (autopilot mode; review kept in reviews/)")
+        rep.gate_text = None
+        out = self.respond(gate.value, sid, text, user="autopilot", source="autopilot")
+        rep.lines.extend(ln for ln in out.splitlines() if ln.strip())
+        return True
+
     def _require_vertex_auth(self, *, force: bool = False) -> Any:
         """Fail-fast credential pre-flight for every real generation wave (skipped in fake / test mode).
 
@@ -603,6 +619,8 @@ class Studio:
         rep = StepReport(scene_id=sid)
         self.state.ensure_scene(sid)
         handlers = self._handlers()
+        from .adapters.auth import AuthError
+
         for _ in range(max_steps):
             if self.state.is_paused(sid):
                 rep.blocked.append(f"{sid} is paused (`resume {sid}`)")
@@ -610,7 +628,14 @@ class Studio:
             if not self._clear_blockers(sid, rep):
                 break
             handler = handlers.get(self.state.scene(sid).stage)
-            if handler is None or not handler(sid, rep):
+            if handler is None:
+                break
+            try:
+                keep_going = handler(sid, rep)
+            except AuthError as exc:  # any stage (G2 images, G3 boards, G5 video...): fail fast, same blocker
+                self._auth_block(sid, rep, exc)
+                break
+            if not keep_going:
                 break
         rep.stage = self.state.scene(sid).stage.value
         return rep
@@ -768,6 +793,9 @@ class Studio:
             rep.lines.append(f"{sid}: G2 auto-passed (nothing new to design)")
             return True
         missing = self.design_missing(sid)
+        if missing and self.is_autopilot():  # nobody to ask: generate the missing reference images right away
+            rep.lines.append(self.design_generate(sid))
+            missing = self.design_missing(sid)
         if missing:  # workspace token-saving gate: ask for existing reference sheets before generating
             listing = "; ".join(f"{self.display_name(k.split('_STATE_')[0])} [{k}] needs {', '.join(v)}"
                                 for k, v in missing.items())
@@ -798,6 +826,8 @@ class Studio:
                             defaults="Vision tier — never auto-proceeds; silence means AGY waits.")
         rep.gate_text = self._open_gate(packet)
         self.state.transition(sid, S.AWAITING_G2, reason=f"{len(items)} new design item(s) staged")
+        if self.is_autopilot():
+            return self._autopilot_approve(GateId.G2, sid, rep)
         return False
 
     def _image_model_id(self) -> str:
@@ -941,9 +971,16 @@ class Studio:
         return f"{item}: geometry + angles locked in library/{set_note}"
 
     def _ensure_set3d(self, env_id: str) -> str:
-        """Automatically build the grey-box 3D set (set3d) and Blender export whenever an environment is locked at G2."""
+        """Automatically build the grey-box 3D set (set3d) and Blender export whenever an environment is locked at G2.
+
+        Skipped in autopilot mode: the 3D set exists for a human to frame cameras in, and it costs an LLM pass plus a
+        Blender export per environment. ``set3d build <ENV_ID>`` still works on demand.
+        """
         from .set3d import designer, store
         from .set3d.blender_export import export_blender_scene
+
+        if self.is_autopilot() and not store.has_set(self.project, env_id):
+            return f" (3D set skipped in autopilot mode — `set3d build {env_id}` on demand)"
 
         if store.has_set(self.project, env_id):
             try:
@@ -1051,6 +1088,8 @@ class Studio:
                                                    if s.board_frame]
         rep.gate_text = self._open_gate(packet, media)
         self.state.transition(sid, S.AWAITING_G3, reason=f"{len(shots)} shot(s) boarded")
+        if self.is_autopilot():
+            return self._autopilot_approve(GateId.G3, sid, rep)
         return False
 
     def _relevant_prefs(self, sid: str, agent: str | None = None) -> list[Any]:
@@ -1491,11 +1530,10 @@ class Studio:
         except Exception:  # noqa: BLE001
             pass
         control_mode = str(getattr(self.settings, "control_mode", "director") or "director").lower()
-        if control_mode in ("hybrid", "autopilot") and voice_report.get("auto_pass_eligible"):
-            self.gates.auto_pass(GateId.G4, sid, reason=f"{control_mode} mode: all scene voices locked in Global Bible")
-            self.state.transition(sid, S.LINT, reason="G4 auto-passed (voices locked in Global Bible)")
-            rep.lines.append(f"{sid}: G4 auto-passed ({control_mode} mode; all voices locked in Global Bible)")
-            return True
+        # G4 is a craft gate: GateManager.auto_pass() refuses it by design. In hybrid mode (all voices already locked
+        # in the Global Bible) and in autopilot the packet is still opened and then answered by AGY — a recorded
+        # decision, not a silent skip.
+        self_answer = self.is_autopilot() or (control_mode == "hybrid" and bool(voice_report.get("auto_pass_eligible")))
         items = []
         for clip in self.active_clips(sid):
             a = clip.spec.audio_spec
@@ -1520,6 +1558,8 @@ class Studio:
                             defaults="Craft tier — never auto-proceeds; silence means AGY waits.")
         rep.gate_text = self._open_gate(packet)
         self.state.transition(sid, S.AWAITING_G4, reason="audio_spec + cue plan ready")
+        if self_answer:
+            return self._autopilot_approve(GateId.G4, sid, rep)
         return False
 
     def _apply_g4(self, sid: str | None, response: Any, decisions: list[Any]) -> list[str]:
@@ -1753,6 +1793,31 @@ class Studio:
         if regen:
             self.state.transition(sid, S.GENERATING, reason="re-roll after QA: " + ", ".join(regen))
             return True
+        if human and self.is_autopilot():
+            # No human picks in autopilot: open the G5 packet (review folder + audit record) and answer it with the
+            # QA-recommended take per clip — or, once the automatic re-rolls are exhausted, the best-ranked take —
+            # plus first voice anchors taken from those picks. Every choice is a recorded decision (source=autopilot).
+            parts: list[str] = []
+            anchors: dict[str, str] = {}
+            for cid in human:
+                best = self._recommended_take(cid)
+                if best is None:
+                    ranked = rank_takes(self.project, self.project.load_clip(cid), self._candidates(cid))
+                    if not ranked:
+                        continue
+                    best = ranked[0]
+                    parts.append(f"{cid}:choose {best.id}")
+                    rep.lines.append(f"{cid}: autopilot picked best-ranked {best.id} despite QA flags "
+                                     f"(auto re-rolls exhausted) — check it at G6")
+                else:
+                    parts.append(f"{cid}:ok")
+                for char in self._speakers_needing_anchor([self.project.load_clip(cid)]):
+                    anchors.setdefault(char, best.id)
+            packet = self._g5_packet(sid, human, auto_selected=auto)
+            rep.gate_text = self._open_gate(packet, self._review_media(packet.review_dir))
+            self.state.transition(sid, S.AWAITING_G5, reason=f"autopilot: {len(human)} clip(s) picked by QA rank")
+            reply = ", ".join([*parts, *(f"anchor {c}={t}" for c, t in anchors.items())]) or "approve all"
+            return self._autopilot_approve(GateId.G5, sid, rep, text=reply)
         if human:
             packet = self._g5_packet(sid, human, auto_selected=auto)
             rep.gate_text = self._open_gate(packet, self._review_media(packet.review_dir))

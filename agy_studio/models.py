@@ -134,6 +134,7 @@ class DecisionTier(StrEnum):
 class DecisionSource(StrEnum):
     CHAT = "chat"
     RESOLVE = "resolve"
+    AUTOPILOT = "autopilot"  # AGY answered the gate itself (control_mode=autopilot); auditable like any decision
 
 
 class DecisionAction(StrEnum):

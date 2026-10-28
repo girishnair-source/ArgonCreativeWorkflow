@@ -162,11 +162,14 @@ def generate_omni_360p_sfx_batch(
 
     project = _vertex_project()
     creds = Credentials(token=_gcloud_token(), quota_project_id=project)
+    from agy_studio.adapters.base import genai_http_options  # noqa: PLC0415 - hard request timeout
+
     client = genai.Client(
         enterprise=True,
         project=project,
         location=OMNI_LOCATION,
         credentials=creds,
+        http_options=genai_http_options("video"),
     )
 
     for sfx_prompt, target_wav, dur_sec in jobs:

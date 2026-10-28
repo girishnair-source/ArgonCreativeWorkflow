@@ -29,8 +29,24 @@ else
 fi
 
 echo "=== [3/4] Setting Up Python Virtual Environment (.venv) ==="
+# Pick the newest Python >= 3.11 (macOS's system python3 is often 3.9 and tries to compile numpy from source).
+PY=""
+for cand in python3.13 python3.12 python3.14 python3.11 python3; do
+  if command -v "$cand" >/dev/null 2>&1; then
+    if "$cand" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then PY="$cand"; break; fi
+  fi
+done
+if [ -z "$PY" ]; then
+  echo "ERROR: no Python >= 3.11 found. Install one (macOS: brew install python@3.12) and re-run." >&2
+  exit 1
+fi
+if [ -x ".venv/bin/python" ] && ! .venv/bin/python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
+  echo "Existing .venv uses $(.venv/bin/python --version); recreating it with $PY ($($PY --version))"
+  rm -rf .venv
+fi
 if [ ! -x ".venv/bin/python" ]; then
-  python3 -m venv .venv
+  echo "Creating .venv with $PY ($($PY --version))"
+  "$PY" -m venv .venv
 fi
 .venv/bin/pip install --upgrade pip -q
 .venv/bin/pip install -r requirements.txt -q

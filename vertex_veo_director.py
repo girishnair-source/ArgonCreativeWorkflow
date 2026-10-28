@@ -126,12 +126,15 @@ class GeminiOmniClient:
     def _get_client(self) -> genai.Client:
         from google.oauth2.credentials import Credentials
 
+        from agy_studio.adapters.base import genai_http_options  # noqa: PLC0415 - hard request timeout
+
         creds = Credentials(token=self.token.get(), quota_project_id=self.project)
         self._client = genai.Client(
             enterprise=True,
             project=self.project,
             location=self.location,
             credentials=creds,
+            http_options=genai_http_options("video"),
         )
         return self._client
 

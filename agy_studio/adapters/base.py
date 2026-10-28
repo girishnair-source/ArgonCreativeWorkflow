@@ -257,8 +257,29 @@ def vertex_project_id() -> str:
     return _CACHED_GCLOUD_PROJECT
 
 
-def gemini_client(location: str | None = None, *, use_gcloud_token: bool = False) -> Any:
-    """google-genai client on Vertex AI.
+# Hard per-request timeouts (seconds). Without them a stalled connection (corp proxy, Airlock, Wi-Fi) hangs a gate
+# forever with no error — "the harness ran for an hour and produced nothing". Override with AGY_TIMEOUT_<KIND>_S.
+REQUEST_TIMEOUTS_S: dict[str, float] = {"text": 120.0, "image": 300.0, "video": 180.0}
+
+
+def request_timeout_s(kind: str) -> float:
+    """Timeout for one HTTP request of ``kind`` (text | image | video); env ``AGY_TIMEOUT_<KIND>_S`` overrides."""
+    raw = os.environ.get(f"AGY_TIMEOUT_{kind.upper()}_S")
+    try:
+        return float(raw) if raw else REQUEST_TIMEOUTS_S.get(kind, 120.0)
+    except ValueError:
+        return REQUEST_TIMEOUTS_S.get(kind, 120.0)
+
+
+def genai_http_options(kind: str = "text") -> Any:
+    """``types.HttpOptions`` with the hard timeout for ``kind`` (google-genai takes milliseconds)."""
+    from google.genai import types  # noqa: PLC0415 - real path only
+
+    return types.HttpOptions(timeout=int(request_timeout_s(kind) * 1000))
+
+
+def gemini_client(location: str | None = None, *, use_gcloud_token: bool = False, kind: str = "text") -> Any:
+    """google-genai client on Vertex AI with a hard request timeout (``kind``: text | image | video).
 
     ``use_gcloud_token=True`` authenticates with a fresh ``gcloud auth print-access-token`` (the same credential the
     video adapters use); otherwise Application Default Credentials. A broken gcloud sign-in raises
@@ -273,13 +294,15 @@ def gemini_client(location: str | None = None, *, use_gcloud_token: bool = False
     from google import genai  # noqa: PLC0415 - real path only
 
     project = vertex_project_id()
+    http_options = genai_http_options(kind)
     if use_gcloud_token:
         from google.oauth2.credentials import Credentials  # noqa: PLC0415
 
         tok = auth.gcloud_access_token(auth.preferred_account())
         creds = Credentials(token=tok, quota_project_id=project)
-        return genai.Client(vertexai=True, project=project, location=location or "global", credentials=creds)
-    return genai.Client(vertexai=True, project=project, location=location or "global")
+        return genai.Client(vertexai=True, project=project, location=location or "global", credentials=creds,
+                            http_options=http_options)
+    return genai.Client(vertexai=True, project=project, location=location or "global", http_options=http_options)
 
 
 def parse_json_text(text: str | None) -> dict[str, Any]:

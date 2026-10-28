@@ -98,6 +98,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--fps", type=int, default=24)
 
     c = add("status", "project / scene status")
+    c = add("trace", "where did the time go: agent/LLM call durations, gates, questions, provider jobs, silent gaps")
+    c.add_argument("--limit", type=int, default=25, help="how many recent events to list")
     c.add_argument("scene", nargs="?")
 
     c = add("tick", "one orchestration pass (round-trip poll, regen queue, every scene)")
@@ -386,6 +388,7 @@ def run(argv: list[str] | None = None, *, fake: bool | None = None) -> str:
     cmd = a.cmd
     table: dict[str, Callable[[], Any]] = {
         "status": lambda: s.status(a.scene),
+        "trace": lambda: __import__("agy_studio.trace", fromlist=["render_trace"]).render_trace(s.project, limit=a.limit),
         "advance": lambda: s.advance(a.scene).text() or f"{a.scene}: nothing to do right now",
         "pause": lambda: s.pause(a.scene, user=a.user),
         "approve": lambda: s.approve_scene(a.scene, user=a.user),

@@ -398,3 +398,30 @@ def test_cli_has_no_fake_flag() -> None:
 
     with pytest.raises(SystemExit):
         build_parser().parse_args(["--fake", "status"])
+
+
+# ---------------------------------------------------------------------------------------------
+# Every Gemini request carries a hard timeout (a stalled connection must fail, never hang a gate)
+# ---------------------------------------------------------------------------------------------
+def test_request_timeouts_are_set_and_overridable(monkeypatch: pytest.MonkeyPatch) -> None:
+    from agy_studio.adapters import base as adapters_base
+
+    assert adapters_base.request_timeout_s("text") == 120.0
+    assert adapters_base.request_timeout_s("image") == 300.0
+    assert adapters_base.request_timeout_s("video") == 180.0
+    monkeypatch.setenv("AGY_TIMEOUT_TEXT_S", "45")
+    assert adapters_base.request_timeout_s("text") == 45.0
+    opts = adapters_base.genai_http_options("text")
+    assert opts.timeout == 45_000  # google-genai takes milliseconds
+    monkeypatch.setenv("AGY_TIMEOUT_TEXT_S", "not-a-number")
+    assert adapters_base.request_timeout_s("text") == 120.0
+
+
+def test_trace_report_on_a_fresh_project(tmp_path: Path) -> None:
+    from agy_studio.testing import build_demo_project
+    from agy_studio.trace import render_trace
+
+    project = build_demo_project(tmp_path / "p")
+    text = render_trace(project)
+    assert "where the time went" in text
+    assert "no take has been submitted" in text

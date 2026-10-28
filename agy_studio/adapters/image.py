@@ -79,7 +79,7 @@ class ImageAdapter(BaseAdapter):
 
         from google.genai import types  # noqa: PLC0415 - real path only
 
-        client = self.client or gemini_client(self.spec.location)
+        client = self.client or gemini_client(self.spec.location, kind="image")
         ref_parts: list[Any] = [gemini_part_from_file(p, image_mime(p)) for p in ref_paths]
         errors: list[str] = []
 
@@ -115,7 +115,7 @@ class ImageAdapter(BaseAdapter):
                         err_msg = short_error(exc)
                         if self.client is None and is_auth_failure(exc):
                             # ADC mismatch -> retry exactly once with the gcloud token; a broken gcloud raises AuthError
-                            alt = gemini_client(self.spec.location, use_gcloud_token=True)
+                            alt = gemini_client(self.spec.location, use_gcloud_token=True, kind="image")
                             try:
                                 resp = alt.models.generate_content(
                                     model=model,

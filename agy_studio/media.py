@@ -111,19 +111,104 @@ def read_image_rgb(path: Path, size: tuple[int, int] = (64, 64)) -> np.ndarray:
     return data.reshape(h, w, 3)
 
 
+def sample_frames_rgb(video: Path, n: int = 9, size: tuple[int, int] = (96, 54)) -> np.ndarray:
+    """``n`` frames spread EVENLY across the whole clip (not the first second), as an ``(n, h, w, 3)`` uint8 array.
+
+    Decoded through ffmpeg rawvideo at ``size`` — small on purpose: this feeds motion / continuity statistics, not
+    display. Raises when the file is not a decodable video.
+    """
+    video = Path(video)
+    w, h = size
+    dur = duration_s(video)
+    if dur <= 0:
+        raise ValueError(f"{video} has no duration — not a video")
+    # the first frame, then the first frame at least dur/n seconds after the previously selected one -> frames at
+    # 0, dur/n, 2dur/n, ... (n-1)dur/n: the whole clip, not just its first second
+    step = dur / n
+    expr = f"isnan(prev_selected_t)+gte(t-prev_selected_t\\,{step * 0.98:.4f})"
+    vf = f"select='{expr}',scale={w}:{h}"
+    proc = run(["ffmpeg", "-v", "error", "-i", str(video), "-vf", vf, "-vsync", "vfr", "-frames:v", str(n),
+                "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], timeout=300, binary_output=True)
+    data = np.frombuffer(proc.stdout, dtype=np.uint8)
+    frame_px = w * h * 3
+    got = data.size // frame_px
+    if got == 0:
+        raise ValueError(f"could not decode any frame from {video}")
+    frames = data[: got * frame_px].reshape(got, h, w, 3)
+    if got < n:  # very short clips: repeat the last decoded frame so callers always get n
+        frames = np.concatenate([frames, np.repeat(frames[-1:], n - got, axis=0)], axis=0)
+    return frames
+
+
+def frame_motion_stats(frames: np.ndarray) -> dict[str, float]:
+    """Mean absolute pixel difference between consecutive frames, normalised to [0, 1]."""
+    f = np.asarray(frames, dtype=np.float32) / 255.0
+    if f.shape[0] < 2:
+        return {"mean_diff": 0.0, "max_diff": 0.0, "min_diff": 0.0}
+    diffs = np.abs(f[1:] - f[:-1]).mean(axis=(1, 2, 3))
+    return {"mean_diff": float(diffs.mean()), "max_diff": float(diffs.max()), "min_diff": float(diffs.min())}
+
+
+STATIC_FRAME_DIFF_MAX = 0.004  # below this mean per-pixel change between sampled frames the "video" is a still
+
+
+LOW_MOTION_MEAN_DIFF = 0.008  # below this the take barely moves (slow zoom on a still, frozen subject) -> warn
+
+
+def analyze_motion(video: Path, n: int = 9) -> dict[str, Any]:
+    """Is this a real moving-picture take or a still image padded into a container (slideshow / zoompan)?
+
+    ``static`` (hard): the sampled frames do not change. ``low_motion`` (warn): they change very little — a slow
+    zoom on a still looks like this, but so can a quiet close-up, so it is a flag for the critic, not a verdict.
+    """
+    frames = sample_frames_rgb(video, n=n)
+    stats = frame_motion_stats(frames)
+    return {**stats, "frames": int(frames.shape[0]), "static": stats["max_diff"] < STATIC_FRAME_DIFF_MAX,
+            "low_motion": stats["mean_diff"] < LOW_MOTION_MEAN_DIFF}
+
+
+def contact_sheet_3x3(video: Path, out: Path, *, cell_width: int = 320) -> Path:
+    """Tile 9 EVENLY spaced frames of ``video`` into a 3x3 PNG. Raises on any ffmpeg problem — never a placeholder."""
+    video, out = Path(video), Path(out)
+    dur = duration_s(video)
+    if dur <= 0:
+        raise ValueError(f"{video} has no duration — not a video")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # fps=9/dur yields one frame per ninth of the clip; the first frame of each ninth lands on frames 0..8.
+    vf = f"fps={9.0 / dur:.6f},scale={cell_width}:-2,tile=3x3"
+    run(["ffmpeg", "-y", "-v", "error", "-i", str(video), "-vf", vf, "-frames:v", "1", str(out)], timeout=300)
+    if not out.is_file() or out.stat().st_size == 0:
+        raise RuntimeError(f"ffmpeg produced no contact sheet for {video}")
+    return out
+
+
 # ---------------------------------------------------------------------------------------------
 # Synthetic media (fakes, tests, offline demos)
 # ---------------------------------------------------------------------------------------------
 def make_test_clip(out: Path, *, duration_s: float = 4.0, size: tuple[int, int] = (270, 480), fps: int = 24,
-                   tone_hz: float | None = 440.0, color: str | None = None, overwrite: bool = False) -> Path:
-    """Synthetic H.264/AAC clip (testsrc2 or a solid colour) with an optional sine-tone audio track."""
+                   tone_hz: float | None = 440.0, color: str | None = None, overwrite: bool = False,
+                   static: bool = False) -> Path:
+    """Synthetic H.264/AAC clip (testsrc2, or a solid colour with a small moving marker) + optional sine tone.
+
+    The moving marker keeps a coloured test clip a *moving picture* (the QA critic hard-rejects static takes) while
+    leaving its dominant colour intact. ``static=True`` produces a genuinely still clip for tests of that rejection.
+    """
     out = _guard_out(out, overwrite)
     w, h = size
     src = (f"color=c={color}:size={w}x{h}:rate={fps}:duration={duration_s}" if color
            else f"testsrc2=size={w}x{h}:rate={fps}:duration={duration_s}")
     base = ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", src]
+    moving = bool(color) and not static
+    if moving:  # a small white square sweeping across the frame (overlay re-evaluates its position every frame)
+        box = max(8, min(w, h) // 4)
+        base += ["-f", "lavfi", "-i", f"color=c=white:size={box}x{box}:rate={fps}:duration={duration_s}"]
     if tone_hz:
         base += ["-f", "lavfi", "-i", f"sine=frequency={tone_hz}:sample_rate=48000:duration={duration_s}"]
+    if moving:
+        base += ["-filter_complex", f"[0:v][1:v]overlay=x='mod(t*{max(60, w)}\\,W-w)':y='mod(t*{max(40, h // 2)}\\,H-h)':eval=frame[v]",
+                 "-map", "[v]"]
+        if tone_hz:
+            base += ["-map", "2:a"]
     for vcodec in (["-c:v", "libx264", "-preset", "ultrafast"], ["-c:v", "mpeg4", "-q:v", "5"]):
         argv = [*base, *vcodec, "-pix_fmt", "yuv420p"]
         if tone_hz:

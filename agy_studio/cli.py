@@ -294,13 +294,6 @@ def build_parser() -> argparse.ArgumentParser:
     ob.add_argument("env")
     ob.add_argument("--render", action="store_true", help="headless: save .blend and render every saved camera")
 
-    c = add("draft-finalize", "run Two-Tier 360p Draft -> 3x3 Contact Sheet + Critic QA -> 4K Finalize (Omni 1.5 Flash)")
-    c.add_argument("scene")
-    c.add_argument("clip")
-    c.add_argument("--prompt", required=True, help="video generation prompt (reused identically for 360p and 4K)")
-    c.add_argument("--seed", type=int, default=42)
-    c.add_argument("--draft-only", action="store_true", help="only run 360p draft + 3x3 contact sheet critic")
-
     c = add("contact-sheet", "extract a 3x3 frame contact sheet PNG from a video take")
     c.add_argument("video_path")
     c.add_argument("--output", help="optional output PNG path")
@@ -489,19 +482,14 @@ def run(argv: list[str] | None = None, *, fake: bool | None = None) -> str:
         from .harness_v5 import build_3x3_contact_sheet
 
         out = build_3x3_contact_sheet(Path(a.video_path), Path(a.output) if a.output else None)
-        return f"3x3 Contact Sheet generated: {out}"
-    if cmd == "draft-finalize":
-        from .harness_v5 import DraftFinalizeController
+        from .harness_v5 import VisualContinuityCritic
 
-        ctl = DraftFinalizeController(s.project.scene_dir(a.scene.upper()))
-        rec = ctl.generate_draft_360p(a.clip.upper(), a.prompt, seed=a.seed)
-        if not a.draft_only and rec.critic_report and rec.critic_report.status == "accepted":
-            rec = ctl.finalize_4k(rec)
-        return (
-            f"{rec.clip_id} ({rec.provider_model}): stage={rec.stage} "
-            f"draft={rec.draft_video_path} contact_3x3={rec.draft_contact_sheet_path} "
-            f"final_4k={rec.final_4k_video_path}"
-        )
+        rep = VisualContinuityCritic().evaluate(Path(a.video_path).stem, out, video_path=Path(a.video_path))
+        mo = rep.motion
+        return (f"3x3 contact sheet: {out}\n"
+                f"motion: mean={mo.get('mean_diff', 0):.4f} max={mo.get('max_diff', 0):.4f} "
+                f"static={mo.get('static')} low_motion={mo.get('low_motion')}\n"
+                f"critic: {rep.status}" + (f" — {rep.reason}\n{rep.remediation}" if rep.status != "accepted" else ""))
     if cmd == "slate":
         from .harness_v5 import SlateController
 

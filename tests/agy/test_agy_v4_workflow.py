@@ -397,3 +397,47 @@ def test_gate5_html_review_and_gate6_freeze_and_rejected_vault(tmp_path: Path) -
     assert "hybrid" in out_mode
     out_search = cli.run(["--workspace", str(proj.root.parents[1]), "--project", "TEST_V4", "search-takes", "parcel"], fake=True)
     assert "SC01_SH01_C01_T02" in out_search
+
+
+def test_qa_critic_hard_rejects_stills_and_unprovenanced_videos(tmp_path: Path, ffmpeg_available: bool) -> None:
+    """A storyboard still padded into an mp4 (zoompan / slideshow) can never pass QA, in any mode.
+
+    Two independent measured guards: (1) no provider operation behind the file, (2) the sampled frames do not move.
+    """
+    from agy_studio.qa_critic import score_take
+    from agy_studio.registry import Registry
+
+    proj = _seed_v4_project(tmp_path)
+    reg = Registry()
+    clip = proj.load_clip("SC01_SH01_C01")
+
+    # (1) + (2): a still, dropped into the take folder by a script — no operation_name
+    still = proj.take_dir("SC01_SH01_C01_T07") / "video.mp4"
+    media.make_test_clip(still, duration_s=3.0, color="gray", static=True)
+    t_still = Take(id="SC01_SH01_C01_T07", clip_id=clip.id, model="omni", payload_hash="hash_still",
+                   dispatch_status=DispatchStatus.COMPLETED, status=TakeStatus.CANDIDATE, video_uri=proj.rel(still))
+    proj.save_take(t_still)
+    qa = score_take(proj, reg, clip, t_still, fake=True)
+    reasons = " ".join(qa.hard_reject_reasons)
+    assert "unprovenanced_video" in reasons and "static_video" in reasons
+    assert "static_video" in qa.artifact_flags
+
+    # (1) only: a moving clip but still no provider operation behind it -> rejected
+    moving = proj.take_dir("SC01_SH01_C01_T08") / "video.mp4"
+    media.make_test_clip(moving, duration_s=3.0)
+    t_mov = Take(id="SC01_SH01_C01_T08", clip_id=clip.id, model="omni", payload_hash="hash_mov",
+                 dispatch_status=DispatchStatus.COMPLETED, status=TakeStatus.CANDIDATE, video_uri=proj.rel(moving))
+    proj.save_take(t_mov)
+    qa = score_take(proj, reg, clip, t_mov, fake=True)
+    assert any(r.startswith("unprovenanced_video") for r in qa.hard_reject_reasons)
+    assert not any(r.startswith("static_video") for r in qa.hard_reject_reasons)
+
+    # a genuine take (provider operation recorded, moving picture) carries neither reason
+    real = proj.take_dir("SC01_SH01_C01_T09") / "video.mp4"
+    media.make_test_clip(real, duration_s=3.0)
+    t_real = Take(id="SC01_SH01_C01_T09", clip_id=clip.id, model="omni", payload_hash="hash_real",
+                  dispatch_status=DispatchStatus.COMPLETED, status=TakeStatus.CANDIDATE, video_uri=proj.rel(real),
+                  operation_name="interactions/abc123")
+    proj.save_take(t_real)
+    qa = score_take(proj, reg, clip, t_real, fake=True)
+    assert not any(r.startswith(("unprovenanced_video", "static_video")) for r in qa.hard_reject_reasons)

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from . import continuity, fsio, media
-from .adapters.base import extract_dialogue_wav, staged_write
+from .adapters.base import short_error, extract_dialogue_wav, staged_write
 from .models import (
     DispatchStatus,
     GenClip,
@@ -159,6 +159,22 @@ def score_take(
     prompt_adherence = float(vision.prompt_adherence(frames, clip.spec.visual.subject_and_action)) if frames else 0.0
     artifact_flags = list(vision.artifact_flags(frames)) if frames else ["missing_frames"]
 
+    # Measured, model-free: is this a moving picture at all? A storyboard still padded into an mp4 (slideshow /
+    # ffmpeg zoompan) has (near-)identical sampled frames and is never an acceptable take.
+    motion_stats: dict[str, Any] | None = None
+    if take.video_uri and project.abs(take.video_uri).is_file():
+        try:
+            motion_stats = media.analyze_motion(project.abs(take.video_uri), n=9)
+        except Exception as exc:  # noqa: BLE001 - an undecodable "video" is itself a hard reject below
+            motion_stats = {"error": short_error(exc), "static": True, "max_diff": 0.0, "mean_diff": 0.0}
+        if motion_stats.get("static"):
+            artifact_flags.append("static_video")
+        elif motion_stats.get("low_motion"):
+            artifact_flags.append("low_motion")
+    # Provenance: a real take was submitted to a provider (operation_name) — an mp4 placed into the take folder by
+    # a script (storyboard still + zoompan, slideshow) never was, and is never acceptable.
+    unprovenanced = bool(take.video_uri) and not take.operation_name
+
     expected_text = " ".join(continuity.clip_line_texts(clip)).strip()
     wav_path = project.abs(take.dialogue_wav_uri) if take.dialogue_wav_uri else None
     has_wav = wav_path is not None and wav_path.is_file()
@@ -191,6 +207,12 @@ def score_take(
             speaker_similarity[char_id] = float(spk_sim.similarity(wav_path, project.abs(vp.anchor_wav)))
 
     hard_reject_reasons: list[str] = []
+    if unprovenanced:
+        hard_reject_reasons.append("unprovenanced_video (no provider operation behind this file — not a generated take)")
+    if motion_stats is not None and motion_stats.get("static"):
+        hard_reject_reasons.append(
+            f"static_video (sampled frames do not change: max_diff={float(motion_stats.get('max_diff', 0.0)):.4f}"
+            f"{'; ' + str(motion_stats['error']) if motion_stats.get('error') else ''}) — a still/slideshow, not a video take")
     if music_present:
         hard_reject_reasons.append("spontaneous_music")
     if expected_text and not has_wav:

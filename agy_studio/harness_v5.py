@@ -31,17 +31,16 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-import struct
-import subprocess
 import uuid
-import zlib
 from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
 
+import numpy as np
 from pydantic import Field, field_validator, model_validator
 
+from . import media
 from .models import Model
 
 
@@ -91,6 +90,7 @@ class VisualContinuityFailureMode(StrEnum):
     CAMERA_FRAMING_VIOLATION = "camera_framing_violation"
     TEXT_LABEL_HALLUCINATION = "text_label_hallucination"
     SCALE_ANATOMY_DISTORTION = "scale_anatomy_distortion"
+    STATIC_FRAMES = "static_frames"  # measured: the 9 frames do not change -> a still / slideshow, not a video take
 
 
 REMEDIATION_RECIPES: dict[VisualContinuityFailureMode, str] = {
@@ -112,6 +112,10 @@ REMEDIATION_RECIPES: dict[VisualContinuityFailureMode, str] = {
     VisualContinuityFailureMode.SCALE_ANATOMY_DISTORTION: (
         "Enforce realistic human anatomy & table-prop scale ratios from 3D set bounding boxes; regenerate with new seed."
     ),
+    VisualContinuityFailureMode.STATIC_FRAMES: (
+        "This is not a generated video take — the sampled frames are identical (a storyboard still padded into an "
+        "mp4 / ffmpeg zoompan). Regenerate the clip with the video model (Omni / Veo); never substitute stills."
+    ),
 }
 
 
@@ -126,72 +130,22 @@ class VisualCriticReport(Model):
     reason: str = "All 9 contact-sheet frames pass identity, wardrobe, prop, framing, text, and anatomy checks."
     remediation: str | None = None
     frame_checks: dict[str, bool] = Field(default_factory=dict)
-
-
-def _write_fallback_3x3_png(output_png: Path, width: int = 960, height: int = 540) -> Path:
-    """Write a valid 3x3 grid PNG using stdlib zlib/struct when ffmpeg or real video frames aren't available."""
-    output_png.parent.mkdir(parents=True, exist_ok=True)
-    cell_w = max(1, width // 3)
-    cell_h = max(1, height // 3)
-    rows: list[bytes] = []
-    for y in range(height):
-        row = bytearray([0])  # filter type 0
-        gy = min(2, y // cell_h)
-        border_y = (y % cell_h) < 2 or (y % cell_h) >= (cell_h - 2)
-        for x in range(width):
-            gx = min(2, x // cell_w)
-            border_x = (x % cell_w) < 2 or (x % cell_w) >= (cell_w - 2)
-            idx = gy * 3 + gx
-            if border_x or border_y:
-                row.extend((240, 196, 64))  # warm gold grid divider
-            else:
-                r = 28 + idx * 18
-                g = 36 + gy * 28
-                b = 52 + gx * 32
-                row.extend((r, g, b))
-        rows.append(bytes(row))
-    raw = b"".join(rows)
-
-    def _chunk(tag: bytes, data: bytes) -> bytes:
-        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
-
-    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    png_bytes = b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", zlib.compress(raw, 6)) + _chunk(b"IEND", b"")
-    output_png.write_bytes(png_bytes)
-    return output_png
+    motion: dict[str, Any] = Field(default_factory=dict)  # measured frame-difference statistics
 
 
 def build_3x3_contact_sheet(video_path: Path, output_png: Path | None = None) -> Path:
-    """Extract 9 evenly spaced frames from ``video_path`` into a single ``3x3`` grid PNG contact sheet.
+    """Tile 9 frames spread EVENLY across the whole take into one 3x3 PNG for the continuity critic.
 
-    Uses ``ffmpeg`` tile filter when ``video_path`` is a real playable video container; falls back to a
-    deterministic 3x3 PNG contact sheet for synthetic/unit-test placeholders so tests run fast and offline.
+    Fails fast when ``video_path`` is not a real, decodable video or ffmpeg is missing — there is deliberately no
+    placeholder sheet (an earlier version sampled only the first second and drew a grey grid when decoding failed,
+    which let still images pass as video).
     """
     video_path = Path(video_path)
     if output_png is None:
         output_png = video_path.with_name(f"{video_path.stem}_contact_3x3.png")
-    output_png = Path(output_png)
-    output_png.parent.mkdir(parents=True, exist_ok=True)
-
-    ffmpeg_bin = shutil.which("ffmpeg")
-    if ffmpeg_bin and video_path.exists() and video_path.stat().st_size > 1024:
-        cmd = [
-            ffmpeg_bin,
-            "-y",
-            "-i",
-            str(video_path),
-            "-vf",
-            "select='not(mod(n,3))',scale=320:-1,tile=3x3",
-            "-frames:v",
-            "1",
-            str(output_png),
-        ]
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if proc.returncode == 0 and output_png.exists() and output_png.stat().st_size > 0:
-            return output_png
-
-    return _write_fallback_3x3_png(output_png)
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        raise RuntimeError("ffmpeg/ffprobe are required to build a contact sheet (brew install ffmpeg)")
+    return media.contact_sheet_3x3(video_path, Path(output_png))
 
 
 class VisualContinuityCritic:
@@ -202,12 +156,21 @@ class VisualContinuityCritic:
         take_id: str,
         contact_sheet_path: Path,
         *,
+        video_path: Path | None = None,
         checks: dict[str, bool] | None = None,
         threshold: float = 0.85,
     ) -> VisualCriticReport:
+        """Measured check first (static frames), then the six judged continuity modes.
+
+        ``video_path`` (preferred) samples 9 frames across the take; without it the 9 tiles of the contact sheet are
+        compared. ``checks`` carries the vision-judge / human verdicts for the judged modes; it can never override a
+        measured ``static_frames`` failure.
+        """
         default_checks = {mode.value: True for mode in VisualContinuityFailureMode}
         if checks:
-            default_checks.update(checks)
+            default_checks.update({k: v for k, v in checks.items() if k != VisualContinuityFailureMode.STATIC_FRAMES.value})
+        motion = self.measure_motion(video_path or contact_sheet_path, from_sheet=video_path is None)
+        default_checks[VisualContinuityFailureMode.STATIC_FRAMES.value] = not motion["static"]
 
         failed_modes = [
             VisualContinuityFailureMode(k)
@@ -230,6 +193,7 @@ class VisualContinuityCritic:
                 reason=f"Visual continuity check failed on {primary.value} (score={score:.2f} < {threshold:.2f}).",
                 remediation=remediation,
                 frame_checks=default_checks,
+                motion=motion,
             )
 
         return VisualCriticReport(
@@ -241,7 +205,21 @@ class VisualContinuityCritic:
             reason="All 9 contact-sheet frames pass identity, wardrobe, prop, framing, text, and anatomy checks.",
             remediation=None,
             frame_checks=default_checks,
+            motion=motion,
         )
+
+    @staticmethod
+    def measure_motion(path: Path, *, from_sheet: bool = False) -> dict[str, Any]:
+        """Mean/max per-pixel change between the 9 sampled frames (or the 9 tiles of a sheet)."""
+        path = Path(path)
+        if not from_sheet:
+            return media.analyze_motion(path, n=9)
+        img = media.read_image_rgb(path, size=(96 * 3, 54 * 3))
+        tiles = [img[r * 54:(r + 1) * 54, c * 96:(c + 1) * 96, :] for r in range(3) for c in range(3)]
+        frames = np.stack(tiles, axis=0)
+        stats = media.frame_motion_stats(frames)
+        return {**stats, "frames": 9, "static": stats["max_diff"] < media.STATIC_FRAME_DIFF_MAX,
+                "low_motion": stats["mean_diff"] < media.LOW_MOTION_MEAN_DIFF * 2.5, "source": "sheet"}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -286,32 +264,28 @@ class DraftFinalizeController:
     def _hash_prompt(prompt: str) -> str:
         return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
-    def generate_draft_360p(
+    def register_draft_360p(
         self,
         clip_id: str,
         prompt: str,
+        draft_video: Path,
         *,
         seed: int = 42,
         reference_image_paths: list[str] | None = None,
         critic_checks: dict[str, bool] | None = None,
     ) -> TwoTierTakeRecord:
+        """Record a REAL 360p draft produced by the video adapter, build its contact sheet and run the critic.
+
+        This controller never generates media itself (an earlier version wrote a JSON stub named ``.mp4`` and the
+        critic accepted it). ``draft_video`` must be a decodable video; otherwise this raises.
+        """
         refs = list(reference_image_paths or [])
         prompt_hash = self._hash_prompt(prompt)
-        draft_mp4 = self.takes_dir / f"{clip_id}_draft_360p.mp4"
-        draft_payload = {
-            "clip_id": clip_id,
-            "model": "gemini-omni-1.5-flash",
-            "resolution": "360p",
-            "tier": "draft",
-            "seed": seed,
-            "prompt": prompt,
-            "prompt_sha256": prompt_hash,
-            "reference_image_paths": refs,
-            "ts": _utc_now(),
-        }
-        draft_mp4.write_text(json.dumps(draft_payload, indent=2), encoding="utf-8")
-        contact_png = build_3x3_contact_sheet(draft_mp4)
-        report = self.critic.evaluate(f"{clip_id}_draft_360p", contact_png, checks=critic_checks)
+        draft_mp4 = Path(draft_video)
+        if not draft_mp4.is_file():
+            raise FileNotFoundError(f"draft video not found: {draft_mp4}")
+        contact_png = build_3x3_contact_sheet(draft_mp4, self.takes_dir / f"{clip_id}_draft_360p_contact_3x3.png")
+        report = self.critic.evaluate(f"{clip_id}_draft_360p", contact_png, video_path=draft_mp4, checks=critic_checks)
 
         stage: Literal["draft_360p", "critic_rejected"] = (
             "draft_360p" if report.status == "accepted" else "critic_rejected"
@@ -330,32 +304,21 @@ class DraftFinalizeController:
         self._save_record(record)
         return record
 
-    def finalize_4k(self, record: TwoTierTakeRecord) -> TwoTierTakeRecord:
-        """Promote an accepted ``360p`` draft take to ``4K`` reusing the exact same prompt and seed."""
+    def finalize_4k(self, record: TwoTierTakeRecord, final_video: Path) -> TwoTierTakeRecord:
+        """Record the REAL 4K render of an accepted draft (same prompt + seed enforced) and re-run the critic."""
         if record.critic_report is None or record.critic_report.status != "accepted":
             raise ValueError(
                 f"Cannot finalize {record.clip_id} to 4K: 360p draft has not been accepted by VisualContinuityCritic."
             )
-        # Verify exact prompt reuse integrity
         if self._hash_prompt(record.prompt) != record.prompt_sha256:
             raise ValueError("Prompt hash mismatch: finalize_4k must reuse the exact same prompt as draft_360p.")
-
-        final_mp4 = self.takes_dir / f"{record.clip_id}_final_4k.mp4"
-        final_payload = {
-            "clip_id": record.clip_id,
-            "model": record.provider_model,
-            "resolution": "4k",
-            "tier": "finalize",
-            "reuse_prompt_on_finalize": True,
-            "seed": record.seed,
-            "prompt": record.prompt,
-            "prompt_sha256": record.prompt_sha256,
-            "reference_image_paths": record.reference_image_paths,
-            "promoted_from_draft": record.draft_video_path,
-            "ts": _utc_now(),
-        }
-        final_mp4.write_text(json.dumps(final_payload, indent=2), encoding="utf-8")
-        final_contact = build_3x3_contact_sheet(final_mp4)
+        final_mp4 = Path(final_video)
+        if not final_mp4.is_file():
+            raise FileNotFoundError(f"final video not found: {final_mp4}")
+        final_contact = build_3x3_contact_sheet(final_mp4, self.takes_dir / f"{record.clip_id}_final_4k_contact_3x3.png")
+        final_report = self.critic.evaluate(f"{record.clip_id}_final_4k", final_contact, video_path=final_mp4)
+        if final_report.status != "accepted":
+            raise ValueError(f"4K render of {record.clip_id} rejected by the critic: {final_report.reason}")
 
         record.stage = "finalized_4k"
         record.final_4k_video_path = str(final_mp4)

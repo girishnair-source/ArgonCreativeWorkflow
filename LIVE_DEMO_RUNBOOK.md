@@ -139,11 +139,14 @@ Open the folder in **Antigravity**, open **DaVinci Resolve**, and paste:
 ### Turn 6 — Gate G5 (Two-Tier `360p` Draft → `3×3` Contact Sheet Critic → `4K` Finalize)
 - **Native CLI Executed by Antigravity**:
   ```bash
-  .venv/bin/python -m agy_studio --project LIVE_DEMO draft-finalize SC01 SC01_SH01_CL01 --prompt "<compiled_shot_prompt>" --seed 42
-  .venv/bin/python -m agy_studio --project LIVE_DEMO contact-sheet <take.mp4>
+  # Real generation only: approving G4 (or `advance SC01`) sends every linted clip to Omni/Veo through the adapters.
+  .venv/bin/python -m agy_studio --project LIVE_DEMO gate G4 "approve all"
+  .venv/bin/python -m agy_studio --project LIVE_DEMO advance SC01
+  # Inspect any take: 9 frames across the whole clip + measured motion + critic verdict
+  .venv/bin/python -m agy_studio --project LIVE_DEMO contact-sheet productions/LIVE_DEMO/scenes/SC01/takes/<TAKE_ID>/take.mp4
   ```
 - **What You & the Audience See**:
-  1. **Tier 1 (`360p` Fast Draft)**: Generates fast `360p` draft takes via **Gemini Omni 1.5 Flash (`gemini-omni-1.5-flash`)**.
+  1. **Tier 1 (`360p` Fast Draft)**: The video adapter generates fast `360p` draft takes via **Gemini Omni 1.5 Flash (`gemini-omni-1.5-flash`)** (registry `draft_resolution`). There is no stub or placeholder path — a take that is not a real moving-picture render from the provider is hard-rejected (`static_video` / `unprovenanced_video`).
   2. **`3×3` Contact Sheet & 6-Mode Continuity Critic**: Extracts the 9-frame temporal contact sheet and scores it across 6 continuity failure modes (`identity_drift`, `lighting_mismatch`, `prop_disappearance`, `wardrobe_mutation`, `eyeline_violation`, `spatial_scale_break`).
   3. **Tier 2 (`4K` Finalize)**: Promotes the winning take (`score >= 0.85`) to **`4K`** reusing the **exact same prompt, seed, and references** (`reuse_prompt_on_finalize=True`), and presents `g5_video_takes_review.md`.
 - **Your Action**:

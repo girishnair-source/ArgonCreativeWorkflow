@@ -17,6 +17,10 @@ bash setup_studio_env.sh
 .venv/bin/python -m agy_studio decisions 20
 .venv/bin/python -m agy_studio questions
 
+# Show / set this production's model policy (primary & secondary video engine, provider fallback chains)
+.venv/bin/python -m agy_studio models
+.venv/bin/python -m agy_studio models --primary veo --secondary omni --fallback omni=gemini-omni-1.1-flash-preview
+
 # Advance a scene or run a full orchestration tick
 .venv/bin/python -m agy_studio advance SC01
 .venv/bin/python -m agy_studio tick --no-poll

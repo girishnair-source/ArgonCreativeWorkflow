@@ -2,6 +2,8 @@
 # Hot-reloadable: agents read constraints from here and never hardcode them. Changing max_duration_s or
 # supports.max_speakers_per_clip changes shot decomposition with no code change (acceptance criterion 10).
 # Costs marked cost_is_estimate: true are placeholders until confirmed against billing — update in chat.
+# Per-production policy lives in productions/<ID>/project.yaml `settings` (video_model_primary,
+# video_model_secondary, provider_fallbacks) and `model_pins` — see `python -m agy_studio models`.
 version: 1
 models:
   - id: omni

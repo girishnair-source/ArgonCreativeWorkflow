@@ -888,6 +888,15 @@ class ProjectSettings(Model):
     control_mode: Literal["director", "hybrid", "autopilot"] = "director"
     content_format: Literal["microdrama_9_16", "episode_16_9", "feature_film", "marketing_spot"] = "microdrama_9_16"
     open_decisions: OpenDecisions = Field(default_factory=OpenDecisions)
+    # --- Model policy for THIS production (registry.yaml stays the global capability source of truth) ---
+    # Primary video engine (registry id of an enabled video_av model). Per-scene `model <SC> <id>` still wins.
+    video_model_primary: str | None = None  # None -> registry default (omni)
+    # Secondary video engine the L12 linter / shot generator re-target to when the primary cannot honour a clip or
+    # every take fails. "" / "none" -> no engine fallback at all (fail fast on the primary).
+    video_model_secondary: str | None = None  # None -> the other enabled video_av model
+    # Per-production override of registry `provider_fallbacks` chains, keyed by registry id. An empty list means
+    # "primary provider model only, no provider fallback".
+    provider_fallbacks: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class ProjectConfig(Model):

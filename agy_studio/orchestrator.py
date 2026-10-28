@@ -2874,6 +2874,80 @@ class Studio:
             f" (format: {updates['content_format']})" if "content_format" in updates else ""
         )
 
+    def set_model_policy(self, *, primary: str | None = None, secondary: str | None = None,
+                         fallbacks: dict[str, list[str]] | None = None, clear_fallbacks: bool = False,
+                         user: str | None = None) -> str:
+        """Per-production model policy (project.yaml ``settings``): primary / secondary video engine and provider
+        fallback chains. Registry.yaml stays the global capability source; this only narrows or reorders it."""
+        from .decomposer import _NO_FALLBACK, video_model_ids
+
+        video = video_model_ids(self.registry)
+        updates: dict[str, Any] = {}
+        if primary is not None:
+            prim = primary.strip()
+            if prim.lower() in ("", "default", "registry"):
+                updates["video_model_primary"] = None
+            elif prim not in video:
+                raise StudioError(f"primary video model must be one of {video}, not {prim!r}")
+            else:
+                updates["video_model_primary"] = prim
+        if secondary is not None:
+            sec = secondary.strip()
+            if sec.lower() in ("default", "registry", "auto"):
+                updates["video_model_secondary"] = None
+            elif sec.lower() in _NO_FALLBACK:
+                updates["video_model_secondary"] = "none"
+            elif sec not in video:
+                raise StudioError(f"secondary video model must be one of {video} or 'none', not {sec!r}")
+            else:
+                updates["video_model_secondary"] = sec
+        cfg = self.project.config
+        if clear_fallbacks:
+            updates["provider_fallbacks"] = {}
+        if fallbacks:
+            merged = dict(cfg.settings.provider_fallbacks) if not clear_fallbacks else {}
+            for mid, chain in fallbacks.items():
+                self.registry.get(mid)  # must be a registry id
+                merged[mid] = [str(x).strip() for x in chain if str(x).strip()]
+            updates["provider_fallbacks"] = merged
+        if not updates:
+            return self.describe_model_policy()
+        cfg.settings = cfg.settings.model_copy(update=updates)
+        self.project.save_config(cfg)
+        self.decisions.record(tier=DecisionTier.VISION, target_artifact_id=self.project.project_id,
+                              action=DecisionAction.OVERRIDE, payload={"model_policy": updates},
+                              rationale="model policy", user=user or self.user)
+        return self.describe_model_policy()
+
+    def describe_model_policy(self) -> str:
+        """Effective model policy for this production: engines, provider chains (registry vs. override), pins."""
+        st = self.settings
+        video = [m for m in self.registry.video_models()]
+        prim = st.video_model_primary or "omni (registry default)"
+        if st.video_model_secondary is None:
+            sec = "other enabled video model (auto)"
+        elif str(st.video_model_secondary).lower() in ("", "none", "null", "off"):
+            sec = "NONE — fail fast on the primary, no engine fallback"
+        else:
+            sec = st.video_model_secondary
+        lines = [f"{self.project.project_id} model policy",
+                 f"  video primary   : {prim}",
+                 f"  video secondary : {sec}",
+                 "  provider chains :"]
+        for spec in self.registry.all():
+            if not spec.enabled:
+                continue
+            pin = self.project.config.model_pins.get(spec.id)
+            head = pin or spec.provider_model
+            override = st.provider_fallbacks.get(spec.id)
+            chain = override if override is not None else list(spec.provider_fallbacks)
+            src = "project.yaml" if override is not None else "registry.yaml"
+            tail = " -> ".join(chain) if chain else "(no provider fallback)"
+            lines.append(f"    {spec.id:<20} {head}{' [pinned]' if pin else ''} -> {tail}   [{src}]")
+        lines.append(f"  video engines available: {', '.join(m.id for m in video)}")
+        lines.append("  change with: `models --primary veo --secondary omni|none --fallback omni=a,b --fallback veo=`")
+        return "\n".join(lines)
+
     def search_vault(self, query: str = "", *, character_id: str | None = None,
                      scene_id: str | None = None) -> str:
         """Search the Rejected Video Vault (`library/rejected_takes_vault.jsonl`)."""

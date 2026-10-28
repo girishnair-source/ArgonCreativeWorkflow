@@ -30,7 +30,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from . import continuity
 from .agent_log import log_agent_call
@@ -115,17 +115,37 @@ def video_model_ids(registry: Registry) -> list[str]:
     return [m.id for m in registry.video_models()]
 
 
-def resolve_model_target(registry: Registry, scene: Scene, model_id: str | None = None) -> ModelTarget:
-    """``model_id`` > ``scene.model_override`` > ``breakdown.recommended_model`` > omni; the other video model is
-    the fallback."""
+_NO_FALLBACK = frozenset({"", "none", "null", "off"})
+
+
+def resolve_model_target(registry: Registry, scene: Scene, model_id: str | None = None,
+                         settings: Any = None) -> ModelTarget:
+    """Pick the preferred + fallback video engine for a scene.
+
+    Preferred: ``model_id`` > ``scene.model_override`` > ``breakdown.recommended_model`` >
+    ``settings.video_model_primary`` (project.yaml) > ``omni`` > first enabled video model.
+    Fallback: ``settings.video_model_secondary`` when set (``"none"`` disables engine fallback), else the other
+    enabled video model. Both must be enabled ``video_av`` registry ids.
+    """
     video = video_model_ids(registry)
     if not video:
         raise UnknownModelError("no enabled video_av model in the registry")
     if model_id is not None and model_id not in video:
         raise ValueError(f"model {model_id!r} is not an enabled video model ({video})")
+    primary_setting = (getattr(settings, "video_model_primary", None) or "").strip() or None
+    if primary_setting and primary_setting not in video:
+        raise ValueError(f"settings.video_model_primary={primary_setting!r} is not an enabled video model ({video})")
     candidates = [model_id, scene.model_override, scene.breakdown.recommended_model if scene.breakdown else None,
-                  DEFAULT_MODEL_ID, video[0]]
+                  primary_setting, DEFAULT_MODEL_ID, video[0]]
     preferred = next(m for m in candidates if m and m in video)
+    secondary = getattr(settings, "video_model_secondary", None)
+    if secondary is not None:
+        sec = str(secondary).strip()
+        if sec.lower() in _NO_FALLBACK:
+            return ModelTarget(preferred=preferred, fallback=None)
+        if sec not in video:
+            raise ValueError(f"settings.video_model_secondary={sec!r} is not an enabled video model ({video})")
+        return ModelTarget(preferred=preferred, fallback=None if sec == preferred else sec)
     fallback = next((m for m in video if m != preferred), None)
     return ModelTarget(preferred=preferred, fallback=fallback)
 
@@ -345,7 +365,7 @@ class _Ctx:
         entities = {e.id: e for e in project.list_entities()}
         environments = {e.id: e for e in project.list_environments()}
         settings = project.config.settings
-        target = resolve_model_target(registry, scene, model_id)
+        target = resolve_model_target(registry, scene, model_id, settings=settings)
         spec = registry.get(target.preferred)
         if spec.max_duration_s is None:
             raise ValueError(f"model {spec.id} has no max_duration_s in the registry")

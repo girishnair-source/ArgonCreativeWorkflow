@@ -153,6 +153,14 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("model_id")
     c.add_argument("provider_model")
 
+    c = add("models", "show or set this production's model policy: primary/secondary video engine, provider "
+                      "fallback chains (registry.yaml stays the global source)")
+    c.add_argument("--primary", help="registry id of the primary video engine (omni | veo | default)")
+    c.add_argument("--secondary", help="registry id of the secondary video engine, or 'none' (fail fast), or 'auto'")
+    c.add_argument("--fallback", action="append", default=[], metavar="ID=a,b",
+                   help="per-production provider fallback chain for a registry id; 'ID=' means none. Repeatable.")
+    c.add_argument("--clear-fallbacks", action="store_true", help="drop all per-production provider overrides")
+
     c = add("decide", "set an open decision, e.g. decide OD3 off")
     c.add_argument("key")
     c.add_argument("value")
@@ -394,6 +402,11 @@ def run(argv: list[str] | None = None, *, fake: bool | None = None) -> str:
         "lock": lambda: s.lock(a.artifact, user=a.user),
         "confirm": lambda: s.confirm(a.artifact, user=a.user),
         "model": lambda: s.set_model(a.scene, a.model_id, user=a.user),
+        "models": lambda: s.set_model_policy(
+            primary=a.primary, secondary=a.secondary,
+            fallbacks={k.strip(): [x for x in v.split(",") if x.strip()] for k, _, v in
+                       (item.partition("=") for item in a.fallback)} or None,
+            clear_fallbacks=a.clear_fallbacks, user=a.user),
         "pin-model": lambda: s.pin_model(a.model_id, a.provider_model, user=a.user),
         "decide": lambda: s.set_open_decision(a.key, a.value, user=a.user),
         "ws": lambda: s.show_working_set(a.scene),

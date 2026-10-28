@@ -381,9 +381,18 @@ class BaseAdapter:
         pins = self.project.config.model_pins if self.project is not None else {}
         return pins.get(self.spec.id) or self.spec.provider_model
 
+    def provider_fallbacks(self) -> list[str]:
+        """Ordered provider fallbacks: ``project.settings.provider_fallbacks[<id>]`` when set (an empty list means
+        "no provider fallback"), else the registry chain."""
+        if self.project is not None:
+            overrides = getattr(self.project.config.settings, "provider_fallbacks", None) or {}
+            if self.spec.id in overrides:
+                return [str(m) for m in overrides[self.spec.id]]
+        return list(self.spec.provider_fallbacks)
+
     def model_chain(self) -> list[str]:
         chain = [self.provider_model()]
-        for model in self.spec.provider_fallbacks:
+        for model in self.provider_fallbacks():
             if model not in chain:
                 chain.append(model)
         return chain
@@ -595,7 +604,7 @@ class VideoAdapter(BaseAdapter, ABC):
 
     def provider_chain(self, payload: GenerationPayload) -> list[str]:
         chain = [payload.provider_model]
-        for model in self.spec.provider_fallbacks:
+        for model in self.provider_fallbacks():
             if model not in chain:
                 chain.append(model)
         return chain

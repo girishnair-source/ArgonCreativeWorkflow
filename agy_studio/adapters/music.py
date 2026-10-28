@@ -1,6 +1,6 @@
 """Music cue adapter — wraps ``pro_audio_director.generate_lyria_music_stem`` (never edited, imported lazily).
 
-In fake mode (``AGY_FAKE_GENERATION=1`` / ``fake=True``), writes a deterministic harmonic WAV via
+In fake mode (``fake=True``, unit tests only), writes a deterministic harmonic WAV via
 :func:`agy_studio.media.write_tone_wav` with zero network access.
 """
 

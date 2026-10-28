@@ -78,7 +78,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="agy_studio", description="AGY film production toolkit (BUILD_SPEC_v3)")
     p.add_argument("--workspace", help="workspace root (default: auto-detect)")
     p.add_argument("--project", help="project id under productions/ (default: most recent)")
-    p.add_argument("--fake", action="store_true", help="use fake adapters (no paid generation, no Resolve)")
     p.add_argument("--manual", action="store_true", help="agents run in manual mode (AGY authors their output)")
     p.add_argument("--user", default="director", help="who is deciding (recorded on every Decision)")
     sub = p.add_subparsers(dest="cmd", required=True, metavar="command")
@@ -235,6 +234,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--scene")
 
     add("registry", "model capability registry (durations, speakers, features)")
+    c = add("inventory", "list every agent, skill, rule, role, model adapter and tool in this repository")
+    c.add_argument("--write", action="store_true", help="refresh docs/AGENTS_AND_SKILLS.md (otherwise print)")
 
     c = add("reanchor", "Gate 3: re-anchor a shot keyframe from a 3D/Blender viewport screenshot + Bible refs")
     c.add_argument("shot")
@@ -354,13 +355,21 @@ def _init(ws: Path, a: argparse.Namespace) -> str:
             f"mode={mode_val.value}, format={fmt_val.value}) at {proj.root}")
 
 
-def run(argv: list[str] | None = None) -> str:
+def run(argv: list[str] | None = None, *, fake: bool | None = None) -> str:
+    """CLI entry. ``fake`` is a programmatic hook for the unit tests only (no flag, no env var exposes it)."""
     a = build_parser().parse_args(argv)
     ws = Path(a.workspace).expanduser().resolve() if a.workspace else find_workspace()
     if a.cmd == "init":
         return _init(ws, a)
     if a.cmd == "registry":
         return _registry_text()
+    if a.cmd == "inventory":
+        from .inventory import render_inventory, write_inventory
+
+        repo_root = Path(__file__).resolve().parent.parent
+        if a.write:
+            return f"wrote {write_inventory(repo_root)}"
+        return render_inventory(repo_root)
     if a.cmd == "export-bundle":
         from .generic_bible import SHAREABLE_SOLUTION_PATHS, export_shareable_bundle
 
@@ -370,7 +379,7 @@ def run(argv: list[str] | None = None) -> str:
 
     from .orchestrator import Studio
 
-    studio = Studio.open(ws, a.project, fake=True if a.fake else None,
+    studio = Studio.open(ws, a.project, fake=fake,
                          agent_mode="manual" if a.manual else None, user=a.user)
     s = studio
     cmd = a.cmd

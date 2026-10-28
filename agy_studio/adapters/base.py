@@ -1,7 +1,8 @@
 """Adapter base layer (BUILD_SPEC_v3 §5 adapter interface; AGY_INTERFACES §4).
 
-* :data:`FAKE_ENV` / :func:`fake_mode` — ``AGY_FAKE_GENERATION=1`` routes every adapter to its deterministic local
-  backend (no network, ever). An explicit ``fake=`` argument always wins over the environment.
+* :func:`resolve_fake` — the deterministic local backend is the unit-test double ONLY: ``fake=True`` is honoured
+  under pytest and raises :class:`FakeModeUnavailable` anywhere else. There is no environment switch and no offline
+  production mode.
 * :class:`VideoAdapter` — the native audio+video interface used by the Shot Generator:
   ``build_payload`` / ``payload_from_bundle`` (content-addressed ``payload_hash``), ``submit`` / ``poll`` /
   ``download`` (provider specific), and the crash-safe ``dispatch`` / ``resume`` loops. ``dispatch`` persists the
@@ -47,7 +48,6 @@ from ..registry import ModelSpec
 from . import auth
 from .auth import AuthError, is_auth_failure, raise_if_auth_failure
 
-FAKE_ENV = "AGY_FAKE_GENERATION"
 _TRUE = frozenset({"1", "true", "yes", "on"})
 
 TERMINAL_STATUSES = frozenset({DispatchStatus.COMPLETED, DispatchStatus.FAILED, DispatchStatus.FILTERED})
@@ -58,14 +58,34 @@ DIALOGUE_WAV_NAME = "dialogue.wav"
 PAYLOAD_NAME = "payload.json"
 
 
+class FakeModeUnavailable(RuntimeError):
+    """The deterministic test backend was requested outside the test-suite. There is no offline generation mode."""
+
+
+def _under_pytest() -> bool:
+    import sys  # noqa: PLC0415
+
+    return "pytest" in sys.modules and bool(os.environ.get("PYTEST_CURRENT_TEST") or "pytest" in sys.argv[0])
+
+
 def fake_mode() -> bool:
-    """True when ``AGY_FAKE_GENERATION`` is set to 1/true/yes/on."""
-    return os.environ.get(FAKE_ENV, "").strip().lower() in _TRUE
+    """Always False: there is NO environment switch for offline generation (fail fast is the only mode).
+
+    Kept so callers that defer to "the environment" keep working; the deterministic backend exists purely as the
+    unit-test double and can only be requested programmatically (``fake=True``) from inside pytest.
+    """
+    return False
 
 
 def resolve_fake(fake: bool | None) -> bool:
-    """Explicit ``fake`` wins; ``None`` defers to the environment."""
-    return fake_mode() if fake is None else bool(fake)
+    """``fake=True`` is honoured ONLY under pytest; anywhere else it raises :class:`FakeModeUnavailable`."""
+    if not fake:
+        return False
+    if not _under_pytest():
+        raise FakeModeUnavailable(
+            "Offline / fake generation is not available: AGY Studio only produces real Vertex AI output. "
+            "If credentials are the problem, fix them (gcloud auth login) — do not look for a fallback.")
+    return True
 
 
 class AdapterError(RuntimeError):

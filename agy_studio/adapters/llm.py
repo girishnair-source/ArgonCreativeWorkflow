@@ -1,6 +1,6 @@
 """Structured LLM adapter for creative/production agents (BUILD_SPEC_v3 §5 ``agent_llm``, §6 agent roles).
 
-In fake mode (``AGY_FAKE_GENERATION=1`` / ``fake=True``), produces deterministic, schema-valid proposal envelopes
+In fake mode (``fake=True``, unit tests only), produces deterministic, schema-valid proposal envelopes
 tailored to the invoked role and scene working set so agent tests and full scene loops run 100% offline.
 """
 

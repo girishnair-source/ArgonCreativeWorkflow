@@ -205,11 +205,10 @@ class Studio:
         return self.project.config.settings
 
     def is_fake(self) -> bool:
-        if self.fake is not None:
-            return bool(self.fake)
-        from .adapters.base import fake_mode
+        """True only for the unit-test double (``fake=True`` under pytest); raises outside pytest, never silent."""
+        from .adapters.base import resolve_fake
 
-        return fake_mode()
+        return resolve_fake(self.fake)
 
     def is_autopilot(self) -> bool:
         """``control_mode == autopilot``: G1 is approved once by the human, G2-G5 are answered by AGY itself."""

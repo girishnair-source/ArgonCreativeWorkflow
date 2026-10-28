@@ -1,4 +1,7 @@
-"""Deterministic local generation backend (``AGY_FAKE_GENERATION=1`` / ``fake=True``) — never touches the network.
+"""Deterministic UNIT-TEST backend (``fake=True`` under pytest only) — never touches the network.
+
+This is a test double, not a product feature: :func:`agy_studio.adapters.base.resolve_fake` refuses ``fake=True``
+outside pytest, there is no CLI flag and no environment variable, so no production run can ever produce this output.
 
 * :class:`FakeVideoBackend` plays the provider: it records every ``submit`` / ``poll`` (so tests can prove that nothing
   is ever dispatched twice), decides each job's outcome at submit time and can be told to misbehave:

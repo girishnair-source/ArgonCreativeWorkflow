@@ -95,3 +95,7 @@ The **Argon Creative Workflow** is purpose-built around **Argon (`Gemini Omni` /
 - **[`LIVE_DEMO_RUNBOOK.md`](./LIVE_DEMO_RUNBOOK.md)** — Step-by-Step Stage Runbook for Live Audience Demos
 - **[`FOLDER_STRUCTURE.md`](./FOLDER_STRUCTURE.md)** — Canonical Shareable Harness vs. Per-Production Folder Architecture
 - **[`EDITOR_HANDOFF_GUIDE.md`](./EDITOR_HANDOFF_GUIDE.md)** — Non-Technical Video Editor Setup & DaVinci Resolve Guide
+
+## Agents, skills & tools inventory
+
+See [`docs/AGENTS_AND_SKILLS.md`](docs/AGENTS_AND_SKILLS.md) — generated from the code (`python -m agy_studio inventory --write`) and kept honest by a unit test.

@@ -1,6 +1,6 @@
 """SFX supplement adapter — wraps ``pro_audio_director`` for hard effects native audio misses.
 
-In fake mode (``AGY_FAKE_GENERATION=1`` / ``fake=True``), writes a deterministic low-frequency percussion/foley
+In fake mode (``fake=True``, unit tests only), writes a deterministic low-frequency percussion/foley
 tone WAV via :func:`agy_studio.media.write_tone_wav` with zero network access.
 """
 

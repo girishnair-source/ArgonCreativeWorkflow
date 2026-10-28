@@ -393,7 +393,7 @@ def test_gate5_html_review_and_gate6_freeze_and_rejected_vault(tmp_path: Path) -
     assert any(h.take_id == "SC01_SH01_C01_T02" for h in hits)
 
     # Verify CLI commands for mode and search-takes
-    out_mode = cli.run(["--workspace", str(proj.root.parents[1]), "--project", "TEST_V4", "--fake", "mode", "hybrid", "--format", "commercial_ad"])
+    out_mode = cli.run(["--workspace", str(proj.root.parents[1]), "--project", "TEST_V4", "mode", "hybrid", "--format", "commercial_ad"], fake=True)
     assert "hybrid" in out_mode
-    out_search = cli.run(["--workspace", str(proj.root.parents[1]), "--project", "TEST_V4", "--fake", "search-takes", "parcel"])
+    out_search = cli.run(["--workspace", str(proj.root.parents[1]), "--project", "TEST_V4", "search-takes", "parcel"], fake=True)
     assert "SC01_SH01_C01_T02" in out_search

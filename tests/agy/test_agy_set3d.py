@@ -188,16 +188,16 @@ def test_stylize_registers_cam_angle(client, demo_project, tmp_path):
 # ---------------------------------------------------------------------------------------------
 def test_cli_set3d(demo_project, productions_dir):
     ws = str(productions_dir.parent)
-    out = cli_run(["--workspace", ws, "--project", "DEMO_S01", "--fake", "set3d", "status"])
+    out = cli_run(["--workspace", ws, "--project", "DEMO_S01", "set3d", "status"], fake=True)
     assert "No 3D sets yet" in out
-    out = cli_run(["--workspace", ws, "--project", "DEMO_S01", "--fake", "set3d", "build", "env_terrace"])
+    out = cli_run(["--workspace", ws, "--project", "DEMO_S01", "set3d", "build", "env_terrace"], fake=True)
     assert "3D set for ENV_TERRACE ready" in out and "set3d serve ENV_TERRACE" in out
-    out = cli_run(["--workspace", ws, "--project", "DEMO_S01", "--fake", "set3d", "cameras", ENV])
+    out = cli_run(["--workspace", ws, "--project", "DEMO_S01", "set3d", "cameras", ENV], fake=True)
     assert "WIDE" in out
-    out = cli_run(["--workspace", ws, "--project", "DEMO_S01", "--fake", "set3d", "show", ENV])
+    out = cli_run(["--workspace", ws, "--project", "DEMO_S01", "set3d", "show", ENV], fake=True)
     assert json.loads(out)["environment_id"] == ENV
     with pytest.raises(FileNotFoundError):
-        cli_run(["--workspace", ws, "--project", "DEMO_S01", "--fake", "set3d", "serve", "ENV_STAIRWELL"])
+        cli_run(["--workspace", ws, "--project", "DEMO_S01", "set3d", "serve", "ENV_STAIRWELL"], fake=True)
 
 
 @pytest.mark.parametrize("mode", ["director", "hybrid", "autopilot"])

@@ -376,3 +376,25 @@ def test_cli_renders_auth_error_as_stop_message(monkeypatch: pytest.MonkeyPatch,
     assert rc == 3
     assert out.startswith("STOPPED — Google Cloud sign-in problem")
     assert "gcloud said: blocked" in out
+
+
+# ---------------------------------------------------------------------------------------------
+# There is no offline / fake production mode: the test double is unreachable outside pytest
+# ---------------------------------------------------------------------------------------------
+def test_fake_backend_is_unreachable_outside_pytest(monkeypatch: pytest.MonkeyPatch) -> None:
+    from agy_studio.adapters import base as adapters_base
+
+    monkeypatch.setattr(adapters_base, "_under_pytest", lambda: False)
+    with pytest.raises(adapters_base.FakeModeUnavailable, match="not available"):
+        adapters_base.resolve_fake(True)
+    assert adapters_base.resolve_fake(False) is False
+    assert adapters_base.resolve_fake(None) is False  # no environment switch exists any more
+    monkeypatch.setenv("AGY_FAKE_GENERATION", "1")
+    assert adapters_base.fake_mode() is False
+
+
+def test_cli_has_no_fake_flag() -> None:
+    from agy_studio.cli import build_parser
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--fake", "status"])

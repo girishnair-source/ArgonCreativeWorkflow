@@ -6,7 +6,7 @@ expired or blocked (e.g. by corporate Context-Aware Access) there is exactly ONE
 
 * stop immediately — before a single take folder, payload or provider job is created,
 * show the human the *real* ``gcloud`` error text and the exact commands that fix it,
-* never substitute offline output (``AGY_FAKE_GENERATION``, macOS ``say``, ``ffmpeg zoompan`` stills, ad-hoc
+* never substitute offline output (`a fake generation backend`, macOS ``say``, ``ffmpeg zoompan`` stills, ad-hoc
   ``prepare_*.py`` scripts). Offline stand-ins waste minutes, produce unusable media and hide the credential block.
 
 This module is the single source of truth for that rule:

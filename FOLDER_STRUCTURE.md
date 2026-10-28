@@ -17,6 +17,7 @@ agy_studio_root/
 ├── README.md                        # Quickstart & architecture overview
 ├── EDITOR_HANDOFF_GUIDE.md          # Editor guide for DaVinci Resolve + Antigravity
 ├── setup_studio_env.sh              # One-step macOS/Linux bootstrapper (.venv, ffmpeg, gcloud)
+├── docs/AGENTS_AND_SKILLS.md        # Generated inventory of agents, skills, roles, adapters, tools
 ├── pyproject.toml                   # Python package & tool configuration
 ├── requirements.txt                 # Locked Python dependencies
 ├── mcp_config.json                  # DaVinci Resolve MCP server registration

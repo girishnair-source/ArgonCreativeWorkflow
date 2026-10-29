@@ -121,12 +121,24 @@ def bootstrap_demo_project(project_id: str, script_path: Path | None) -> Path:
     return proj_dir
 
 
+def run_quick_auth_check() -> bool:
+    """Seconds, not minutes: only the thing most likely to need the Director — can gcloud mint a Vertex token?"""
+    ok, detail = check_vertex_auth()
+    print(("✅ READY   " if ok else "❌ BLOCKING ") + "Google Cloud Sign-In (gcloud token) -> " + (detail if ok else "FAILED"))
+    if not ok:
+        print(detail)
+    return ok
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AGY Studio v5 Pre-Flight & Bootstrapper")
     parser.add_argument("--init-project", type=str, default=None, help="Optional new project ID to bootstrap")
     parser.add_argument("--script", type=Path, default=None, help="Optional path to .fountain script")
+    parser.add_argument("--quick", action="store_true", help="only the gcloud token / project check (no venv needed)")
     args = parser.parse_args()
 
+    if args.quick:
+        sys.exit(0 if run_quick_auth_check() else 1)
     ok = run_preflight()
     if args.init_project:
         bootstrap_demo_project(args.init_project, args.script)

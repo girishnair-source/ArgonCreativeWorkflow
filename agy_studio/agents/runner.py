@@ -461,8 +461,10 @@ def run_agent(
         error = f"{type(exc).__name__}: {exc}"
         raise
     finally:
+        from ..adapters.base import pop_last_usage  # noqa: PLC0415
+
         outputs: dict[str, Any] = {"validated": output.model_dump(mode="json") if output else None,
-                                   "attempts": attempts}
+                                   "attempts": attempts, "usage": pop_last_usage()}
         log_path = log_agent_call(project, agent=spec.name, scene_id=scene_id, working_set_hash=ws_hash,
                                   task=str(task), inputs=inputs, outputs=outputs, model=model_name, mode=mode,
                                   prompt=exact_prompt, duration_s=round(time.monotonic() - started, 3),

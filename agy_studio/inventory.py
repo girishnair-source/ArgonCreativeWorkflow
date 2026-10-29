@@ -160,6 +160,8 @@ def render_inventory(repo_root: Path) -> str:
         "| Subsystem | Module | What it does |",
         "|---|---|---|",
         "| Orchestrator (gates G0–G7, director / hybrid / autopilot) | `agy_studio/orchestrator.py` | Scene state machine, gate packets, self-healing `auth` blocker, autopilot self-approval |",
+        "| Live dashboard | `agy_studio/dashboard.py`, `agy_studio/dashboard_web.py` | `DASHBOARD.md` after every step + local web page: status, time, tokens/cost, ETA, risks, bibles, outputs, QA failures with prompts |",
+        "| Time accounting | `agy_studio/trace.py` | `trace`: per-role LLM durations, gates, questions, provider jobs, silent gaps |",
         "| Credential pre-flight | `agy_studio/adapters/auth.py` | gcloud discovery, token minting with real error text, `AuthError` fail-fast |",
         "| Resolve delivery | `agy_studio/resolve_bridge.py` | Additive BridgeOps → Lua menu click → scripting API fallback; manual one-click route if both fail |",
         "| 3D set (opt-in only) | `agy_studio/set3d/` | Grey-box designer, browser FPV viewer, Blender exporter + `set3d open-blender` launcher, style pass |",
@@ -173,7 +175,7 @@ def render_inventory(repo_root: Path) -> str:
         "",
         "`vertex_veo_director.py` (Omni/Veo clients used by the adapters), `pro_audio_director.py` (Lyria / SFX), "
         "`casting_agent.py`, `dialogue_agent.py`, `production_bible.py`, `production_ledger.py`, "
-        "`new_project_template.py`, `resolve_sync_trigger.py`, `resolve_mcp_server.py`.",
+        "`new_project_template.py`, `resolve_sync_trigger.py`, `resolve_mcp_server.py`. Minute-one intake: `bootstrap_intake.py` (stdlib only).",
         "",
     ]
     return "\n".join(out)

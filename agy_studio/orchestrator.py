@@ -640,7 +640,17 @@ class Studio:
             if not keep_going:
                 break
         rep.stage = self.state.scene(sid).stage.value
+        self._refresh_dashboard()
         return rep
+
+    def _refresh_dashboard(self) -> None:
+        """Rewrite ``DASHBOARD.md`` (status, time, tokens, ETA, risks, outputs, QA failures). Never raises."""
+        try:
+            from .dashboard import write_dashboard  # noqa: PLC0415
+
+            write_dashboard(self.project)
+        except Exception:  # noqa: BLE001 - the dashboard is a view; it must never break the pipeline
+            pass
 
     def tick(self, *, poll: bool = True) -> str:
         """One orchestration pass over the whole project (round-trip poll, regen queue, every scene)."""
@@ -666,6 +676,7 @@ class Studio:
             text = rep.text()
             if text:
                 lines.append(text)
+        self._refresh_dashboard()
         return "\n".join(lines) or "Nothing to do right now."
 
     # ---- PENDING / WORKING_SET ---------------------------------------------------------------
@@ -795,6 +806,11 @@ class Studio:
             rep.lines.append(f"{sid}: G2 auto-passed (nothing new to design)")
             return True
         missing = self.design_missing(sid)
+        if missing:  # the Director's own sheets (bootstrap_intake.py -> library/imports/<Name>/) come first, in every mode
+            imported = self.auto_import_reference_sheets(sid)
+            if imported:
+                rep.lines.extend(imported)
+                missing = self.design_missing(sid)
         if missing and self.is_autopilot():  # nobody to ask: generate the missing reference images right away
             rep.lines.append(self.design_generate(sid))
             missing = self.design_missing(sid)
@@ -840,6 +856,57 @@ class Studio:
 
     def _image_adapter(self) -> Any:
         return self.registry.adapter(self._image_model_id(), project=self.project, fake=self.fake)
+
+    def auto_import_reference_sheets(self, sid: str) -> list[str]:
+        """Stage the Director's own reference images from ``library/imports/<Name>/`` for the pending design items.
+
+        ``<Name>`` is matched (case/space-insensitive) against entity ids, display names and environment ids. The first
+        image becomes ``front`` (``geometry`` for an environment), the second ``three_quarter``, further files
+        ``insert_<n>``. Missing views are then generated FROM these sheets (``design_generate`` passes staged images as
+        references) — never from scratch. Returns one line per staged item; nothing when there are no imports.
+        """
+        imports_dir = self.project.path("library", "imports")
+        if not imports_dir.is_dir():
+            return []
+        folders = {self._norm_name(d.name): d for d in imports_dir.iterdir() if d.is_dir()}
+        if not folders:
+            return []
+        idx = self.project.entity_state_index()
+        manifest = self._design_manifest(sid)
+        lines: list[str] = []
+        for item in self.design_delta(sid):
+            if manifest.get(item):
+                continue  # already staged (earlier scene or manual import)
+            keys: list[str] = [self._norm_name(item)]
+            if item in idx:
+                ent = idx[item][0]
+                keys += [self._norm_name(ent.id), self._norm_name(ent.id.removeprefix("CHAR_").removeprefix("PROP_")),
+                         self._norm_name(getattr(ent, "display_name", None) or ""), self._norm_name(item.split("_STATE_")[0])]
+            else:
+                keys += [self._norm_name(item.removeprefix("ENV_"))]
+            folder = next((folders[k] for k in keys if k and k in folders), None)
+            if folder is None:
+                continue
+            files = sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS)
+            if not files:
+                continue
+            roles = list(self._required_roles(item)) or (["geometry"] if item not in idx else ["single_ref"])
+            mapping: dict[str, str | Path] = {}
+            for i, f in enumerate(files):
+                role = roles[i] if i < len(roles) else f"insert_{i - len(roles) + 1}"
+                mapping[role] = f
+            try:
+                self.design_import(sid, item, mapping)
+            except StudioError as exc:
+                lines.append(f"{item}: could not use {folder.name}/ ({exc})")
+                continue
+            lines.append(f"{item}: using the Director's {len(mapping)} reference image(s) from library/imports/{folder.name}/ "
+                         f"({', '.join(mapping)})")
+        return lines
+
+    @staticmethod
+    def _norm_name(text: str) -> str:
+        return "".join(ch for ch in str(text).lower() if ch.isalnum())
 
     def design_import(self, sid: str, item: str, files: dict[str, str | Path]) -> str:
         """Copy the editor's existing reference images INTO the project (never referenced in place)."""

@@ -87,19 +87,28 @@ def build_parser() -> argparse.ArgumentParser:
 
     c = add("init", "create a new production folder (locks 1 of the 3 studio modes: director | hybrid | autopilot)")
     c.add_argument("project_id")
-    c.add_argument("title", nargs="+")
-    c.add_argument("--mode", dest="control_mode", choices=("director", "hybrid", "autopilot"), default="director",
+    c.add_argument("title", nargs="*", help="(optional with --from-intake)")
+    c.add_argument("--mode", dest="control_mode", choices=("director", "hybrid", "autopilot"), default=None,
                    help="Operating mode: director (human gate at G1-G6), hybrid (auto G2/G4 reuse), autopilot (G1 straight to G6)")
     c.add_argument("--format", dest="content_format",
                    choices=("microdrama_9_16", "episode_16_9", "feature_film", "marketing_spot", "commercial_ad"),
                    default=None)
     c.add_argument("--language", default="hi")
-    c.add_argument("--aspect", choices=("9:16", "16:9"), default="9:16")
+    c.add_argument("--aspect", choices=("9:16", "16:9"), default=None, help="defaults from --format")
     c.add_argument("--fps", type=int, default=24)
+    c.add_argument("--from-intake", action="store_true",
+                   help="take mode/format/aspect/language/model policy/title from productions/<ID>/intake.yaml "
+                        "(written by bootstrap_intake.py); CLI flags override")
 
     c = add("status", "project / scene status")
     c = add("trace", "where did the time go: agent/LLM call durations, gates, questions, provider jobs, silent gaps")
     c.add_argument("--limit", type=int, default=25, help="how many recent events to list")
+    c = add("dashboard", "live production dashboard: status, time, tokens/cost, ETA, risks, bibles, outputs, QA failures")
+    c.add_argument("action", nargs="?", choices=("write", "json", "serve"), default="write",
+                   help="write DASHBOARD.md (default) | json | serve a local auto-refreshing page")
+    c.add_argument("--host", default="127.0.0.1")
+    c.add_argument("--port", type=int, default=8766)
+    c.add_argument("--open", action="store_true", help="open the browser (serve)")
     c.add_argument("scene", nargs="?")
 
     c = add("tick", "one orchestration pass (round-trip poll, regen queue, every scene)")
@@ -341,21 +350,51 @@ def _registry_text() -> str:
 
 def _init(ws: Path, a: argparse.Namespace) -> str:
     from .bible_hierarchy import build_global_context_bible
+    from .fsio import read_yaml
     from .generic_bible import ContentFormat, ControlMode
     from .models import ProjectConfig, ProjectSettings
     from .project import Project
 
-    w, h = (1080, 1920) if a.aspect == "9:16" else (1920, 1080)
-    title = _join(a.title)
-    cfg = ProjectConfig(project_id=a.project_id, title=title, language=a.language,
-                        settings=ProjectSettings(fps=a.fps, width=w, height=h, aspect_ratio=a.aspect))
-    proj = Project.create(Project.productions_dir(ws), a.project_id, title, language=a.language, config=cfg)
-    mode_val = ControlMode(getattr(a, "control_mode", "director") or "director")
-    default_fmt = "microdrama_9_16" if a.aspect == "9:16" else "episode_16_9"
-    fmt_val = ContentFormat(getattr(a, "content_format", None) or default_fmt)
+    intake: dict[str, Any] = {}
+    productions = Project.productions_dir(ws)
+    intake_path = productions / a.project_id / "intake.yaml"
+    if getattr(a, "from_intake", False):
+        if not intake_path.is_file():
+            raise FileNotFoundError(f"{intake_path} not found — run `python3 bootstrap_intake.py {a.project_id} ...` first")
+        intake = read_yaml(intake_path) or {}
+    title = _join(a.title) if a.title else str(intake.get("title") or a.project_id)
+    mode = getattr(a, "control_mode", None) or intake.get("control_mode") or "director"
+    fmt = getattr(a, "content_format", None) or intake.get("content_format")
+    aspect = a.aspect or intake.get("aspect_ratio") or ("16:9" if fmt in ("episode_16_9", "feature_film") else "9:16")
+    language = a.language if a.language != "hi" or not intake.get("language") else str(intake["language"])
+    fmt = fmt or ("microdrama_9_16" if aspect == "9:16" else "episode_16_9")
+    w, h = (1080, 1920) if aspect == "9:16" else (1920, 1080)
+    settings = ProjectSettings(fps=a.fps, width=w, height=h, aspect_ratio=aspect)
+    policy = intake.get("model_policy") or {}
+    updates: dict[str, Any] = {}
+    if policy.get("video_model_primary"):
+        updates["video_model_primary"] = str(policy["video_model_primary"])
+    if policy.get("video_model_secondary"):
+        updates["video_model_secondary"] = str(policy["video_model_secondary"])
+    if intake.get("takes_per_clip"):
+        updates["takes_per_clip"] = int(intake["takes_per_clip"])
+    if updates:
+        settings = settings.model_copy(update=updates)
+    cfg = ProjectConfig(project_id=a.project_id, title=title, language=language, settings=settings)
+    proj = Project.create(productions, a.project_id, title, language=language, config=cfg)
+    mode_val = ControlMode(mode)
+    fmt_val = ContentFormat(fmt)
     build_global_context_bible(proj, control_mode=mode_val, content_format=fmt_val, save=True)
-    return (f"Created {proj.project_id} “{title}” ({a.aspect}, {a.fps} fps, "
-            f"mode={mode_val.value}, format={fmt_val.value}) at {proj.root}")
+    lines = [f"Created {proj.project_id} “{title}” ({aspect}, {a.fps} fps, mode={mode_val.value}, format={fmt_val.value}, "
+             f"lang={language}) at {proj.root}"]
+    refs = intake.get("reference_sheets") or {}
+    if refs:
+        lines.append("  reference sheets staged for G2 auto-import: " + ", ".join(f"{k} ({len(v)})" for k, v in refs.items()))
+    if intake:
+        nxt = intake.get("script")
+        lines.append(f"  next: `--project {proj.project_id} ingest productions/{proj.project_id}/{nxt}` then `g1`"
+                     if nxt else "  next: ingest the script, then g1")
+    return "\n".join(lines)
 
 
 def run(argv: list[str] | None = None, *, fake: bool | None = None) -> str:
@@ -389,6 +428,7 @@ def run(argv: list[str] | None = None, *, fake: bool | None = None) -> str:
     table: dict[str, Callable[[], Any]] = {
         "status": lambda: s.status(a.scene),
         "trace": lambda: __import__("agy_studio.trace", fromlist=["render_trace"]).render_trace(s.project, limit=a.limit),
+        "dashboard": lambda: _dashboard(s, a),
         "advance": lambda: s.advance(a.scene).text() or f"{a.scene}: nothing to do right now",
         "pause": lambda: s.pause(a.scene, user=a.user),
         "approve": lambda: s.approve_scene(a.scene, user=a.user),
@@ -516,6 +556,28 @@ def run(argv: list[str] | None = None, *, fake: bool | None = None) -> str:
             c = repo.redo()
             return f"Redid to commit {c.commit_id}: {c.message}"
     raise ValueError(f"unknown command {cmd}")
+
+
+def _dashboard(s: Any, a: argparse.Namespace) -> str:
+    from .dashboard import collect_dashboard, render_markdown, write_dashboard
+
+    if a.action == "json":
+        import json as _json
+
+        return _json.dumps(collect_dashboard(s.project), indent=2, default=str)
+    if a.action == "serve":
+        from .dashboard_web import serve
+
+        serve(s.project, host=a.host, port=a.port, open_browser=a.open)
+        return ""
+    path = write_dashboard(s.project)
+    d = collect_dashboard(s.project)
+    head = render_markdown(d).splitlines()
+    summary = [f"wrote {path}", *head[1:2]]
+    errs = [r["text"] for r in d["risks"] if r["level"] == "error"]
+    if errs:
+        summary += ["NEEDS YOU:", *(f"  - {e}" for e in errs)]
+    return "\n".join(summary)
 
 
 def _set3d(s: Any, a: argparse.Namespace) -> str:

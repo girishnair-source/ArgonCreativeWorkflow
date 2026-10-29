@@ -305,6 +305,31 @@ def gemini_client(location: str | None = None, *, use_gcloud_token: bool = False
     return genai.Client(vertexai=True, project=project, location=location or "global", http_options=http_options)
 
 
+_LAST_USAGE: dict[str, Any] = {}
+
+
+def _remember_usage(resp: Any, model: str) -> None:
+    """Keep the token usage of the most recent Gemini text call (read by the agent runner for the dashboard)."""
+    um = getattr(resp, "usage_metadata", None)
+    if um is None:
+        return
+    _LAST_USAGE.clear()
+    _LAST_USAGE.update({
+        "model": model,
+        "input_tokens": int(getattr(um, "prompt_token_count", 0) or 0),
+        "output_tokens": int(getattr(um, "candidates_token_count", 0) or 0),
+        "thought_tokens": int(getattr(um, "thoughts_token_count", 0) or 0),
+        "total_tokens": int(getattr(um, "total_token_count", 0) or 0),
+    })
+
+
+def pop_last_usage() -> dict[str, Any]:
+    """Token usage of the last Gemini text call (empty when none / fake mode); cleared on read."""
+    out = dict(_LAST_USAGE)
+    _LAST_USAGE.clear()
+    return out
+
+
 def parse_json_text(text: str | None) -> dict[str, Any]:
     raw = (text or "").strip()
     if raw.startswith("```"):
@@ -335,6 +360,7 @@ def gemini_generate_json(models: Sequence[str], location: str | None, system: st
         try:
             resp = client.models.generate_content(model=model, contents=contents,
                                                   config=types.GenerateContentConfig(**cfg))
+            _remember_usage(resp, model)
             return parse_json_text(getattr(resp, "text", None))
         except AuthError:
             raise
@@ -345,6 +371,7 @@ def gemini_generate_json(models: Sequence[str], location: str | None, system: st
                 try:
                     resp = alt_client.models.generate_content(model=model, contents=contents,
                                                               config=types.GenerateContentConfig(**cfg))
+                    _remember_usage(resp, model)
                     return parse_json_text(getattr(resp, "text", None))
                 except Exception as exc2:  # noqa: BLE001
                     raise_if_auth_failure(exc2, context=f"calling {model}")

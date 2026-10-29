@@ -7,11 +7,19 @@ The operator of this workspace is a **Creative Video Editor / Director**. Antigr
 All pipeline commands run inside the workspace `.venv`:
 
 ```bash
-# Bootstrap or verify local macOS studio environment (.venv, ffmpeg, gcloud)
+# Minute one (no venv needed): capture the Director's inputs, script and reference sheets
+python3 bootstrap_intake.py <PROJECT_ID> --title "…" --mode autopilot --format episode_16_9 --language en --script script.txt --ref Sparky=chars/Sparky.jpg
+python3 live_demo_preflight.py --quick        # auth state in seconds
+
+# Bootstrap or verify local macOS studio environment (.venv, ffmpeg, gcloud) — run in the background while the Director answers
 bash setup_studio_env.sh
+.venv/bin/python -m agy_studio init <PROJECT_ID> --from-intake
 
 # Inspect overall project and scene status
 .venv/bin/python -m agy_studio status
+.venv/bin/python -m agy_studio --project <ID> dashboard            # writes productions/<ID>/DASHBOARD.md
+.venv/bin/python -m agy_studio --project <ID> dashboard serve --open   # live page on 127.0.0.1:8766
+.venv/bin/python -m agy_studio --project <ID> trace                # where did the time go
 
 # View recent decisions or open questions
 .venv/bin/python -m agy_studio decisions 20
